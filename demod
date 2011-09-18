@@ -1,0 +1,75 @@
+#!/usr/bin/env python
+
+from optparse import OptionParser
+from time import sleep
+import os.path
+from glob import glob
+import logging as l
+from sys import exit
+
+import demod
+    
+def parse_options():
+    usage = '''usage: %prog [options] file_or_folder
+    
+    Demodulate data, file_or_folder can be a single .dat file, a day folder or a root folder
+    in daemon mode it needs to be the root folder'''
+    parser = OptionParser(usage)
+    parser.add_option("-v", "--verbose",
+                      action="store_true", dest="verbose", default=False)
+    parser.add_option("-d", "--daemon",
+                      action="store", type='int',dest="daemon", help='In daemon mode it checks every DAEMON seconds the latest day folder for new files, if the files in the new folder are less then 120, it checks also the previous one')
+    (options, args) = parser.parse_args()
+    if len(args) != 1:
+        parser.print_help()
+        exit(1)
+    return options, args
+
+def static_process(d):
+    '''Demodulate file specified or all files in day folder or all files in root folder'''
+    if not os.path.isdir(d):
+        files = [d]
+    else:
+        files = glob(os.path.join(d,'*.dat'))
+        if not files: #we received a "root" folder
+            files = glob(os.path.join(d,'*','*.dat'))
+    if not files:
+        l.error('No files found')
+    for f in files:
+        try:
+            demod.DataDemod(f).run()
+        except demod.InvalidFileException:
+            pass
+
+def daemon(d,options):
+    '''Stay alive and check for new files'''
+    while True:
+        l.debug('Waking up')
+        days = sorted(glob(os.path.join(d,'*')))
+        last_day = days[-1]
+        files = glob(os.path.join(last_day,'*.dat'))
+        if len(files) <= options.daemon / (2*60) and len(days) > 1:
+            files.extend(glob(os.path.join(days[-2],'*.dat')))
+        # NOT CONVERTING LAST FILE
+        for f in sorted(files)[:-1]:
+            try:
+                dem = demod.DataDemod(f)
+                dem.run()
+            except demod.InvalidFileException:
+                l.debug('renaming %s to %s.bad' % (f,f))
+                #os.rename(f,f+'.bad')
+        sleep(options.daemon)
+
+def main():
+    options, args = parse_options()
+    if options.verbose:
+        l.basicConfig(level=l.DEBUG)
+    else:
+        l.basicConfig(level=l.WARNING)
+    if not options.daemon:
+        static_process(args[0])
+    else:
+        daemon(args[0],options)
+
+if __name__ == "__main__":
+    main()
