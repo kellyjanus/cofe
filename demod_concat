@@ -14,4 +14,3 @@ parser = OptionParser(usage=usage)
 for folder in args:
     print('FOLDER %s' % folder)
     demod_concatenate_fits(folder)
-
