@@ -151,7 +151,7 @@ class RawDataReader(object):
         outdtype=np.dtype( [('rev',np.float64)] + [(ch,np.uint16,self.config['SEC_PER_REV']) for ch in self.channels_labels] )
         data = np.zeros(len(d)/self.config['SEC_PER_REV'], dtype=outdtype)
         d_rev = d[::self.config['SEC_PER_REV']]
-        data['rev'] =  d_rev['rev0'].astype(np.float) + self.config['SEC_PER_REV'] * d_rev['rev1'] + self.config['SEC_PER_REV']**2 * d_rev['rev2']
+        data['rev'] =  d_rev['rev0'].astype(np.float64) + self.config['SEC_PER_REV'] * d_rev['rev1'] + self.config['SEC_PER_REV']**2 * d_rev['rev2']
         for ch in self.channels_labels:
             data[ch] = d[ch].reshape((-1, self.config['SEC_PER_REV']))
         return data
@@ -197,11 +197,11 @@ class DataDemod(object):
 
         #data_splitted = np.delete(np.split(data_on_disk[:start_of_revs[-1]], start_of_revs[1:-1]), invalid_revs)
 
-        outdtype=np.dtype( [('rev',np.float64)] + [(ch,np.uint16,self.config['SEC_PER_REV']) for ch in self.channels_labels] )
+        outdtype=np.dtype( [('rev',np.long)] + [(ch,np.uint16,self.config['SEC_PER_REV']) for ch in self.channels_labels] )
         self.data = np.zeros(len(d)/self.config['SEC_PER_REV'], dtype=outdtype)
         d = d[:len(self.data)*self.config['SEC_PER_REV']]
         d_rev = d[::self.config['SEC_PER_REV']]
-        self.data['rev'] =  d_rev['rev0'].astype(np.float) + self.config['SEC_PER_REV'] * d_rev['rev1'] + self.config['SEC_PER_REV']**2 * d_rev['rev2']
+        self.data['rev'] =  d_rev['rev0'].astype(np.long) + self.config['SEC_PER_REV'] * d_rev['rev1'].astype(np.long) + self.config['SEC_PER_REV']**2 * d_rev['rev2'].astype(np.long)
         for ch in self.channels_labels:
             self.data[ch] = d[ch].reshape((-1, self.config['SEC_PER_REV']))
 

@@ -28,7 +28,7 @@ for day in args:
     print(">>>>>>>>>>>>>>>>> DAY %s" % day)
 
     print("PROCESSING SERVO DATA")
-    folder = os.path.join(options.folder, "Servo_Test_Data", day)
+    folder = os.path.join(options.folder, "servo", day)
     print(folder)
     reshape_folder(folder)
     concatenate_fits(folder)
@@ -38,7 +38,7 @@ for day in args:
     freqs = []
     for freq in [10, 15]:
 
-        folder = os.path.join(options.folder, "%d_GHz_Data" % freq, day)
+        folder = os.path.join(options.folder, "%d" % freq, day)
         if os.path.exists(folder):
             freqs.append(freq)
             if (not os.path.exists(folder + '.fits')) or options.demod:
