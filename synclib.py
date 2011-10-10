@@ -3,6 +3,8 @@ import pycfitsio
 import os
 import numpy as np
 
+REVCOUNTER_LABEL = {10:'REVCOUNTER_15GHZ', 15:'REVCOUNTER_10GHZ'}
+
 def fix_counter_jumps(d):
     """Removes jumps by linear fitting and removing points further than a predefined threshold, then linearly interpolates to the full array"""
     THRESHOLD = 3
@@ -56,11 +58,11 @@ class ServoSciSync(object):
     def fix_counters(self):
 
         self.counters = {}
-        servo_count = self.servo['REVCOUNTER_%dGHZ' % freq].data.field(2)
+        servo_count = self.servo[REVCOUNTER_LABEL[self.freq]].data.field(2)
         servo_range = remove_reset(servo_count)
         sci_count = self.data[0].array
         #sci_range = remove_reset(sci_count)
-        self.counters[freq] = {
+        self.counters = {
                     'servo_range' : servo_range,
                     'servo' : fix_counter_jumps_diff(servo_count[servo_range]),
                     'sci_range' : None,
@@ -69,12 +71,12 @@ class ServoSciSync(object):
 
     def sync_clock(self):
         self.clock = {}
-        self.data[0].array[:] = self.counters[freq]['sci']
-        self.clock =np.around(np.interp(self.counters['sci'], self.counters['servo'], self.servo['REVCOUNTER_%dGHZ' % freq].data.field('computerClock')[self.counters['servo_range']])).astype(np.int64)
+        self.data[0].array[:] = self.counters['sci']
+        self.clock =np.around(np.interp(self.counters['sci'], self.counters['servo'], self.servo[REVCOUNTER_LABEL[freq]].data.field('computerClock')[self.counters['servo_range']])).astype(np.int64)
         newcol = pyfits.Column(
             name = 'computerClock',
             format = 'K',
-            array = self.clock[freq]
+            array = self.clock
             )
         self.data.append(newcol)
 
@@ -92,9 +94,9 @@ class ServoSciSync(object):
                     pyfits.Column(
                         name='REVCHECK',
                         format = 'K',
-                        array = np.interp(self.clock[self.freq],
-                            self.servo['REVCOUNTER_%dGHZ' % self.freq].data.field('computerClock')[self.counters[self.freq]['servo_range']],
-                            self.servo['REVCOUNTER_%dGHZ' % self.freq].data.field('value')[self.counters[self.freq]['servo_range']]
+                        array = np.interp(self.clock,
+                            self.servo[REVCOUNTER_LABEL].data.field('computerClock')[self.counters['servo_range']],
+                            self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
                             )
                         )
                     )
