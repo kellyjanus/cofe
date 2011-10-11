@@ -8,6 +8,9 @@ from collections import OrderedDict
 
 REVCOUNTER_LABEL = {10:'REVCOUNTER_15GHZ', 15:'REVCOUNTER_10GHZ'}
 
+def cctotime(c):
+    return (c-c[0])/1.e7/3600.
+
 def fix_counter_jumps(d):
     """Removes jumps by linear fitting and removing points further than a predefined threshold, then linearly interpolates to the full array"""
     THRESHOLD = 3
@@ -31,15 +34,31 @@ def remove_reset(d, offsetsci=None):
     """Gets longest time period between resets"""
     # first check for 20bit jumps
     jump20bit_indices, = np.where(np.logical_and(np.diff(d) < -2**20*.9, np.diff(d) > -2**20*1.1))
+    print('20bit jumps at:')
+    print(jump20bit_indices)
     for j in jump20bit_indices:
-        d[j:] += 2**20
+        d[j+1:] += 2**20
     if not offsetsci is None:
-        d += 2**20 * np.ceil((offsetsci - d[0])/2**20)
-    reset_indices, = np.where(np.diff(d) < -100000)
+        d += 2**20 * np.round((offsetsci - d[0])/2**20)
+    reset_indices, = np.where(np.diff(d) < -50000)
+    real_reset = []
+    for i in reset_indices:
+        if abs(d[i+2]-d[i]) >= abs(d[i+1]-d[i]): 
+            #it is a single point, not a reset
+            real_reset.append(i)
+    reset_indices = np.array(real_reset)
+    print('reset jumps at:')
+    print(reset_indices)
     sections_boundaries = np.concatenate([[0], reset_indices +1 ,[len(d)]])
     sections_lengths = np.diff(sections_boundaries)
     max_len = sections_lengths.argmax()
     return slice(sections_boundaries[max_len],sections_boundaries[max_len+1])
+
+def make_monotonic(d):
+    jumps, = np.where(np.diff(d)<0)
+    print('Fixing jumps at indices %s, at relative position %s' % (str(jumps), str(jumps.astype(np.double)/len(d)) ))
+    for j in jumps:
+        d[j+1:] += d[j] - d[j+1]
 
 class ServoSciSync(object):
     """Synchronizes servo and science data in a single fits file per day"""
@@ -59,13 +78,13 @@ class ServoSciSync(object):
         self.devices = [ext.name for ext in self.servo[1:] if not ext.name.startswith('REV') and not ext.name.startswith('DEVICE') and not ext.name.startswith('TELESCOPE')]
                     
         
-        self.data = {}
         self.data, self.data_header = pycfitsio.read(
                 os.path.join(self.base_folder, 
                             '%d' % self.freq, 
-                            '%s.fits' % self.day), 0)
+                            '%s.fits' % self.day), 0, asodict=True)
 
     def fix_counters(self):
+        print('Fixing counters')
 
         self.counters = {}
         servo_count = self.servo[REVCOUNTER_LABEL[self.freq]].data.field(2)
@@ -80,15 +99,22 @@ class ServoSciSync(object):
                  } 
 
     def sync_clock(self):
+        print('SCI computer clock')
+        assert np.all(np.diff(self.counters['servo']) >= 0)
+        make_monotonic(self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock'))
         self.synched_data['computerClock'] = np.around(np.interp(self.counters['sci'], self.counters['servo'], 
                     self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']])).astype(np.int64)
-        append_fields(self.data, 'computerClock', self.synched_data['computerClock'])
+        self.data['computerClock'] = self.synched_data['computerClock']
 
     def sync_devices(self):
+        print('Synching devices')
         for device in self.devices:
+            print(device)
             ext = self.servo[device]
+            make_monotonic(ext.data.field('computerClock'))
             for col in ext.columns[1:]:
                 try:
+                    assert np.all(np.diff(ext.data.field('computerClock')[self.counters['servo_range']]) >= 0)
                     self.synched_data['_'.join([ext.name, col.name])] = np.interp(self.data['computerClock'], ext.data.field('computerClock')[self.counters['servo_range']], 
                                 ext.data.field(col.name)[self.counters['servo_range']])
                 except exceptions.ValueError:
@@ -102,7 +128,7 @@ class ServoSciSync(object):
         filename = os.path.join(self.base_folder, 'Level1','%s_%dGHz.fits' % (self.day, self.freq))
         print('Writing %s' % filename)
         f = pycfitsio.create(filename)
-        f.write_HDU('DATA', self.data)
+        f.write_HDU_dict('DATA', self.data)
         f.write_HDU_dict('SERVO', self.synched_data)
         f.close()
 
@@ -113,4 +139,3 @@ class ServoSciSync(object):
         self.sync_clock()
         self.sync_devices()
         self.write()
-
