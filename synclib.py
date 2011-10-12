@@ -11,6 +11,12 @@ REVCOUNTER_LABEL = {10:'REVCOUNTER_15GHZ', 15:'REVCOUNTER_10GHZ'}
 def cctotime(c):
     return (c-c[0])/1.e7/3600.
 
+def cctout(cc, gpstime):
+    """cc and gpstime must be already synched"""
+    utc = np.mod(((gpstime+15.)/3600.), 24)
+    ut = utc[0]+(((cc - cc[0])*2e-9)/3600.)
+    return ut
+
 def fix_counter_jumps(d):
     """Removes jumps by linear fitting and removing points further than a predefined threshold, then linearly interpolates to the full array"""
     THRESHOLD = 3
@@ -52,7 +58,9 @@ def remove_reset(d, offsetsci=None):
     sections_boundaries = np.concatenate([[0], reset_indices +1 ,[len(d)]])
     sections_lengths = np.diff(sections_boundaries)
     max_len = sections_lengths.argmax()
-    return slice(sections_boundaries[max_len],sections_boundaries[max_len+1]-sections_boundaries[max_len])
+    s = slice(sections_boundaries[max_len],sections_boundaries[max_len+1])
+    print('selecting section with no resets from index %d to index %d %.2f %% of the total length' % (s.start, s.stop, (s.stop-s.start)*100./len(d)))
+    return s
 
 def make_monotonic(d):
     jumps, = np.where(np.diff(d)<0)
@@ -98,22 +106,28 @@ class ServoSciSync(object):
                     'sci' : sci_count #fix_counter_jumps(sci_count)
                  } 
 
-    #def find_clock_offsets_from_gpstime(self):
-    #    print('Find computerClock offsets')
-    #    dev = 'GYRO_HID'
-    #    cc = self.servo[dev].data.field('computerClock')
-    #    gpstime = self.servo[dev].data.field('GPSTIME')
-    #    jumps, = np.where(np.diff(cc)<0)
-    #    print('Fixing jumps at indices %s, at relative position %s' % (str(jumps), str(jumps.astype(np.double)/len(d)) ))
-    #    for j in jumps:
-    #        d[j+1:] += d[j] - d[j+1]
-
+    def find_clock_offsets_from_gpstime(self):
+        print('Find computerClock offsets')
+        device = 'GYRO_HID'
+        cc = self.servo[device].data.field('computerClock')
+        gpstime = self.servo[device].data.field('GPSTIME')
+        jumps, = np.where(np.diff(cc)<0)
+        print('Found clock jumps at indices %s, at relative position %s' % (str(jumps), str(jumps.astype(np.double)/len(cc)) ))
+        self.offsets = [] 
+        for j in jumps:
+            self.offsets.append(cc[j] + 2e9 * (gpstime[j]+1 - gpstime[j]) - cc[j+1])
+            
     def sync_clock(self):
         print('SCI computer clock')
         assert np.all(np.diff(self.counters['servo']) >= 0)
-        make_monotonic(self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock'))
+        #make_monotonic(self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock'))
+        cc = self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')
+        jumps, = np.where(np.diff(cc)<0)
+        assert len(jumps) == len(self.offsets)
+        for index, offset in zip(jumps, self.offsets):
+            cc[index+1:] += offset
         self.synched_data['computerClock'] = np.around(np.interp(self.counters['sci'], self.counters['servo'], 
-                    self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']])).astype(np.int64)
+                    cc[self.counters['servo_range']])).astype(np.int64)
         self.data['computerClock'] = self.synched_data['computerClock']
 
     def sync_devices(self):
@@ -121,18 +135,24 @@ class ServoSciSync(object):
         for device in self.devices:
             print(device)
             ext = self.servo[device]
-            make_monotonic(ext.data.field('computerClock'))
+            cc = ext.data.field('computerClock')
+            jumps, = np.where(np.diff(cc)<0)
+            assert len(jumps) == len(self.offsets)
+            for index, offset in zip(jumps, self.offsets):
+                cc[index+1:] += offset
+            assert np.all(np.diff(cc[self.counters['servo_range']]) >= 0)
             for col in ext.columns[1:]:
                 try:
-                    assert np.all(np.diff(ext.data.field('computerClock')[self.counters['servo_range']]) >= 0)
-                    self.synched_data['_'.join([ext.name, col.name])] = np.interp(self.data['computerClock'], ext.data.field('computerClock')[self.counters['servo_range']], 
-                                ext.data.field(col.name)[self.counters['servo_range']])
+                    self.synched_data['_'.join([ext.name, col.name])] = np.interp(self.data['computerClock'], cc, 
+                                ext.data.field(col.name))
                 except exceptions.ValueError:
                     print('SKIPPING %s, no samples in range' % '_'.join([ext.name, col.name]))
-            self.synched_data['REVCHECK'] = np.interp(self.data['computerClock'],
-                            self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']],
-                            self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
-                            )
+        self.synched_data['REVCHECK'] = np.interp(self.data['computerClock'],
+                        self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']],
+                        self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
+                        )
+        self.synched_data['UT'] = cctout(self.data['computerClock'], self.synched_data['GYRO_HID_GPSTIME'])
+        self.data['UT'] = self.synched_data['UT']
 
     def write(self):
         filename = os.path.join(self.base_folder, 'Level1','%s_%dGHz.fits' % (self.day, self.freq))
@@ -146,6 +166,7 @@ class ServoSciSync(object):
     def run(self):
         self.load_data()
         self.fix_counters()
+        self.find_clock_offsets_from_gpstime()
         self.sync_clock()
         self.sync_devices()
         self.write()
