@@ -52,7 +52,7 @@ def remove_reset(d, offsetsci=None):
     sections_boundaries = np.concatenate([[0], reset_indices +1 ,[len(d)]])
     sections_lengths = np.diff(sections_boundaries)
     max_len = sections_lengths.argmax()
-    return slice(sections_boundaries[max_len],sections_boundaries[max_len+1])
+    return slice(sections_boundaries[max_len],sections_boundaries[max_len+1]-sections_boundaries[max_len])
 
 def make_monotonic(d):
     jumps, = np.where(np.diff(d)<0)
@@ -97,6 +97,16 @@ class ServoSciSync(object):
                     'sci_range' : None,
                     'sci' : sci_count #fix_counter_jumps(sci_count)
                  } 
+
+    #def find_clock_offsets_from_gpstime(self):
+    #    print('Find computerClock offsets')
+    #    dev = 'GYRO_HID'
+    #    cc = self.servo[dev].data.field('computerClock')
+    #    gpstime = self.servo[dev].data.field('GPSTIME')
+    #    jumps, = np.where(np.diff(cc)<0)
+    #    print('Fixing jumps at indices %s, at relative position %s' % (str(jumps), str(jumps.astype(np.double)/len(d)) ))
+    #    for j in jumps:
+    #        d[j+1:] += d[j] - d[j+1]
 
     def sync_clock(self):
         print('SCI computer clock')
