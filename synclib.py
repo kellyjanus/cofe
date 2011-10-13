@@ -39,14 +39,14 @@ def fix_counter_jumps_diff(d):
 def remove_reset(d, offsetsci=None):
     """Gets longest time period between resets"""
     # first check for 20bit jumps
-    jump20bit_indices, = np.where(np.logical_and(np.diff(d) < -2**20*.95, np.diff(d) > -2**20*1.05))
+    jump20bit_indices, = np.where(np.logical_and(np.diff(d) < -2**20*.9, np.diff(d) > -2**20*1.1))
     print('20bit jumps at:')
     print(jump20bit_indices)
     for j in jump20bit_indices:
         d[j+1:] += 2**20
     if not offsetsci is None:
         d += 2**20 * np.round((offsetsci - d[0])/2**20)
-    reset_indices, = np.where(np.abs(np.diff(d)) > 200000)
+    reset_indices, = np.where(np.diff(d) < -50000)
     real_reset = []
     for i in reset_indices:
         if abs(d[i+2]-d[i]) >= abs(d[i+1]-d[i]): 
