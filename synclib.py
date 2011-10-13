@@ -9,7 +9,7 @@ from collections import OrderedDict
 REVCOUNTER_LABEL = {10:'REVCOUNTER_15GHZ', 15:'REVCOUNTER_10GHZ'}
 
 def cctotime(c):
-    return (c-c[0])/1.e7/3600.
+    return (c-c[0])/2.e9
 
 def cctout(cc, gpstime):
     """cc and gpstime must be already synched"""
@@ -39,14 +39,14 @@ def fix_counter_jumps_diff(d):
 def remove_reset(d, offsetsci=None):
     """Gets longest time period between resets"""
     # first check for 20bit jumps
-    jump20bit_indices, = np.where(np.logical_and(np.diff(d) < -2**20*.9, np.diff(d) > -2**20*1.1))
+    jump20bit_indices, = np.where(np.logical_and(np.diff(d) < -2**20*.95, np.diff(d) > -2**20*1.05))
     print('20bit jumps at:')
     print(jump20bit_indices)
     for j in jump20bit_indices:
         d[j+1:] += 2**20
     if not offsetsci is None:
         d += 2**20 * np.round((offsetsci - d[0])/2**20)
-    reset_indices, = np.where(np.diff(d) < -50000)
+    reset_indices, = np.where(np.abs(np.diff(d)) > 200000)
     real_reset = []
     for i in reset_indices:
         if abs(d[i+2]-d[i]) >= abs(d[i+1]-d[i]): 
@@ -58,7 +58,7 @@ def remove_reset(d, offsetsci=None):
     sections_boundaries = np.concatenate([[0], reset_indices +1 ,[len(d)]])
     sections_lengths = np.diff(sections_boundaries)
     max_len = sections_lengths.argmax()
-    s = slice(sections_boundaries[max_len],sections_boundaries[max_len+1])
+    s = slice(sections_boundaries[max_len], np.min([sections_boundaries[max_len+1], d.searchsorted(4865400)]))
     print('selecting section with no resets from index %d to index %d %.2f %% of the total length' % (s.start, s.stop, (s.stop-s.start)*100./len(d)))
     return s
 
@@ -115,7 +115,7 @@ class ServoSciSync(object):
         print('Found clock jumps at indices %s, at relative position %s' % (str(jumps), str(jumps.astype(np.double)/len(cc)) ))
         self.offsets = [] 
         for j in jumps:
-            self.offsets.append(cc[j] + 2e9 * (gpstime[j]+1 - gpstime[j]) - cc[j+1])
+            self.offsets.append(cc[j] + 2e9 * (gpstime[j+1] - gpstime[j]) - cc[j+1])
             
     def sync_clock(self):
         print('SCI computer clock')
@@ -137,20 +137,21 @@ class ServoSciSync(object):
             ext = self.servo[device]
             cc = ext.data.field('computerClock')
             jumps, = np.where(np.diff(cc)<0)
-            assert len(jumps) == len(self.offsets)
-            for index, offset in zip(jumps, self.offsets):
-                cc[index+1:] += offset
-            assert np.all(np.diff(cc[self.counters['servo_range']]) >= 0)
-            for col in ext.columns[1:]:
-                try:
-                    self.synched_data['_'.join([ext.name, col.name])] = np.interp(self.data['computerClock'], cc, 
-                                ext.data.field(col.name))
-                except exceptions.ValueError:
-                    print('SKIPPING %s, no samples in range' % '_'.join([ext.name, col.name]))
-        self.synched_data['REVCHECK'] = np.interp(self.data['computerClock'],
-                        self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']],
-                        self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
-                        )
+            if len(jumps) > 0:
+                assert len(jumps) == len(self.offsets)
+                for index, offset in zip(jumps, self.offsets):
+                    cc[index+1:] += offset
+                assert np.all(np.diff(cc[self.counters['servo_range']]) >= 0)
+                for col in ext.columns[1:]:
+                    try:
+                        self.synched_data['_'.join([ext.name, col.name])] = np.interp(self.data['computerClock'], cc, 
+                                    ext.data.field(col.name))
+                    except exceptions.ValueError:
+                        print('SKIPPING %s, no samples in range' % '_'.join([ext.name, col.name]))
+            self.synched_data['REVCHECK'] = np.interp(self.data['computerClock'],
+                            self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']],
+                            self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
+                            )
         self.synched_data['UT'] = cctout(self.data['computerClock'], self.synched_data['GYRO_HID_GPSTIME'])
         self.data['UT'] = self.synched_data['UT']
 
