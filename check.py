@@ -5,8 +5,8 @@ sys.path.append('../code')
 import synclib
 from synclib import *
 
-freq = 10
-self = synclib.ServoSciSync(base_folder ='/COFE', day = '20110918', freq = freq)
+freq = 15
+self = synclib.ServoSciSync(base_folder ='/COFE', day = 'all', freq = freq)
 self.load_data()
 plt.figure()
 plt.title('%d GHz REV' % freq)
@@ -24,16 +24,16 @@ for device in self.devices:
 
 self.find_clock_offsets_from_gpstime()
 self.sync_clock()
-plt.plot(self.data['computerClock'], label = 'SCI')
+plt.plot(self.splitted_data['TIME']['computerClock'], label = 'SCI')
 plt.legend(loc=0); plt.grid()
 
 self.sync_devices()
 plt.figure()
-plt.plot(self.synched_data['GYRO_HID_GPSTIME'])
+plt.plot(self.synched_data['GYRO_HID']['GPSTIME'])
 plt.grid()
 
 plt.figure()
-plt.plot(self.data['computerClock'], label = 'SCI')
+plt.plot(self.splitted_data['TIME']['computerClock'], label = 'SCI')
 plt.title('Computer clocks after making monotonic')
 for device in self.devices:
     plt.plot(self.servo[device].data.field('computerClock'), label = device)
@@ -41,22 +41,14 @@ plt.legend(loc=0); plt.grid()
 
 plt.figure()
 plt.title('%d GHz REV' % freq)
-plt.plot(self.data['computerClock'], self.data['REV'],label='SCI REV')
-plt.plot(self.synched_data['computerClock'], self.synched_data['REVCHECK'], label='SERVO REV')
+plt.plot(self.splitted_data['TIME']['computerClock'], self.counters['sci'],'r.',label='SCI REV')
+plt.plot(self.synched_data['TIME']['computerClock'], self.synched_data['TIME']['REVCHECK'],'.', label='SERVO REV')
 plt.legend(); plt.grid(); plt.xlabel('computerClock')
 
 plt.figure()
 plt.title('%d GHz MAG' % freq)
-plt.plot(self.data['computerClock'], self.data['CHANNEL_14T'],label='CHANNEL_14T')
-plt.plot(self.data['computerClock'], self.data['CHANNEL_15T'],label='CHANNEL_15T')
-plt.plot(self.synched_data['computerClock'], self.synched_data['ANALOGCHANNELS_CHANNEL_30'], label='ANALOGCH30')
-plt.plot(self.synched_data['computerClock'], self.synched_data['ANALOGCHANNELS_CHANNEL_31'], label='ANALOGCH31')
-plt.legend(); plt.grid(); plt.xlabel('computerClock')
-
-plt.figure()
-plt.title('%d GHz MAG' % freq)
-plt.plot(cctotime(self.data['computerClock']), np.degrees(np.arctan2(self.data['CHANNEL_15T'], self.data['CHANNEL_14T'])),label='SCI')
-plt.plot(cctotime(self.synched_data['computerClock']), np.degrees(np.arctan2(self.synched_data['ANALOGCHANNELS_CHANNEL_31'], self.synched_data['ANALOGCHANNELS_CHANNEL_30'])),label='ANALOGCH')
+plt.plot(cctotime(self.splitted_data['TIME']['computerClock']), np.degrees(np.arctan2(self.splitted_data['CHANNEL_15']['T'], self.splitted_data['CHANNEL_14']['T'])),label='SCI')
+plt.plot(cctotime(self.synched_data['TIME']['computerClock']), np.degrees(np.arctan2(self.synched_data['ANALOGCHANNELS']['CHANNEL_31'], self.synched_data['ANALOGCHANNELS']['CHANNEL_30'])),label='ANALOGCH')
 plt.legend(); plt.grid(); plt.xlabel('hours')
 
 #self.write()

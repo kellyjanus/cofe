@@ -9,7 +9,7 @@ from collections import OrderedDict
 REVCOUNTER_LABEL = {10:'REVCOUNTER_15GHZ', 15:'REVCOUNTER_10GHZ'}
 
 def cctotime(c):
-    return (c-c[0])/2.e9
+    return (c-c[0])*2.e-9
 
 def cctout(cc, gpstime):
     """cc and gpstime must be already synched"""
@@ -46,20 +46,35 @@ def remove_reset(d, offsetsci=None):
         d[j+1:] += 2**20
     if not offsetsci is None:
         d += 2**20 * np.round((offsetsci - d[0])/2**20)
-    reset_indices, = np.where(np.diff(d) < -50000)
+    print('remove dip')
+    start,=np.where(np.diff(d) < -500000)
+    stop,=np.where(np.diff(d) > 500000)
+    if len(start)>0:
+        d[start[1]-1:stop[1]+1] = -1
+    reset_indices, = np.where(np.diff(d) < -300000)
     real_reset = []
     for i in reset_indices:
-        if abs(d[i+2]-d[i]) >= abs(d[i+1]-d[i]): 
+        if not (1.5e6<i<1.6e6): 
+        #if abs(d[i+2]-d[i]) >= abs(d[i+1]-d[i]) and not (1.5e6<i<1.6e6): 
             #it is a single point, not a reset
             real_reset.append(i)
     reset_indices = np.array(real_reset)
+
     print('reset jumps at:')
     print(reset_indices)
     sections_boundaries = np.concatenate([[0], reset_indices +1 ,[len(d)]])
     sections_lengths = np.diff(sections_boundaries)
     max_len = sections_lengths.argmax()
-    s = slice(sections_boundaries[max_len], np.min([sections_boundaries[max_len+1], d.searchsorted(4865400)]))
-    print('selecting section with no resets from index %d to index %d %.2f %% of the total length' % (s.start, s.stop, (s.stop-s.start)*100./len(d)))
+    s = np.zeros(len(d), dtype=np.bool)
+    start = np.max([150000, sections_boundaries[max_len]])
+    stop = np.min([sections_boundaries[max_len+1], d.searchsorted(4865400)])
+    s[start+1:stop-1] = True
+    s[d==-1] = False
+    s[d==0] = False
+    single_sample_jump, = np.where(np.diff(d[:stop-1])<0)
+    assert np.all(np.diff(single_sample_jump)>2)
+    s[single_sample_jump + 1] = False
+    print('selecting section with no resets from index %d to index %d %.2f %% of the total length' % (start, stop, (stop-start)*100./len(d)))
     return s
 
 def make_monotonic(d):
@@ -86,10 +101,18 @@ class ServoSciSync(object):
         self.devices = [ext.name for ext in self.servo[1:] if not ext.name.startswith('REV') and not ext.name.startswith('DEVICE') and not ext.name.startswith('TELESCOPE')]
                     
         
-        self.data, self.data_header = pycfitsio.read(
+        self.data = pycfitsio.read(
                 os.path.join(self.base_folder, 
                             '%d' % self.freq, 
-                            '%s.fits' % self.day), 0, asodict=True)
+                            '%s.fits' % self.day), 0)
+
+        self.splitted_data = OrderedDict()
+        self.splitted_data['TIME'] = OrderedDict()
+        for ch_n in range(16):
+            ch_name = 'CHANNEL_%02d' % ch_n
+            self.splitted_data[ch_name] = OrderedDict()
+            for comp in 'TQU':
+                self.splitted_data[ch_name][comp] = self.data[ch_name + comp]
 
     def fix_counters(self):
         print('Fixing counters')
@@ -101,7 +124,7 @@ class ServoSciSync(object):
         #sci_range = remove_reset(sci_count)
         self.counters = {
                     'servo_range' : servo_range,
-                    'servo' : fix_counter_jumps_diff(servo_count[servo_range]),
+                    'servo' : servo_count[servo_range],
                     'sci_range' : None,
                     'sci' : sci_count #fix_counter_jumps(sci_count)
                  } 
@@ -126,42 +149,51 @@ class ServoSciSync(object):
         assert len(jumps) == len(self.offsets)
         for index, offset in zip(jumps, self.offsets):
             cc[index+1:] += offset
-        self.synched_data['computerClock'] = np.around(np.interp(self.counters['sci'], self.counters['servo'], 
-                    cc[self.counters['servo_range']])).astype(np.int64)
-        self.data['computerClock'] = self.synched_data['computerClock']
+
+        self.counters['fservocc'] = np.arange( cc[self.counters['servo_range']][0], cc[self.counters['servo_range']][-1], (1/40.)*2e9 )
+        self.counters['fservo'] = np.interp( self.counters['fservocc'], cc[self.counters['servo_range']], self.counters['servo'])
+        self.synched_data['TIME'] = OrderedDict()
+        self.synched_data['TIME']['computerClock'] = np.around(np.interp(self.counters['sci'], self.counters['fservo'], self.counters['fservocc'])).astype(np.int64)
+        #self.synched_data['computerClock'] = np.around(np.interp(self.counters['sci'], self.counters['servo'], 
+        #            cc[self.counters['servo_range']])).astype(np.int64)
+        self.splitted_data['TIME']['computerClock'] = self.synched_data['TIME']['computerClock']
 
     def sync_devices(self):
         print('Synching devices')
         for device in self.devices:
             print(device)
             ext = self.servo[device]
+            self.synched_data[device] = OrderedDict()
             cc = ext.data.field('computerClock')
             jumps, = np.where(np.diff(cc)<0)
             if len(jumps) > 0:
-                assert len(jumps) == len(self.offsets)
-                for index, offset in zip(jumps, self.offsets):
+                offsets = self.offsets
+                if len(jumps) < len(self.offsets):
+                    print('Missing data in %s' % device)
+                    offsets = self.offsets[:len(jumps)]
+                for index, offset in zip(jumps, offsets):
                     cc[index+1:] += offset
-                assert np.all(np.diff(cc[self.counters['servo_range']]) >= 0)
+                assert np.all(np.diff(cc) >= 0)
                 for col in ext.columns[1:]:
                     try:
-                        self.synched_data['_'.join([ext.name, col.name])] = np.interp(self.data['computerClock'], cc, 
+                        self.synched_data[device][col.name] = np.interp(self.splitted_data['TIME']['computerClock'], cc, 
                                     ext.data.field(col.name))
                     except exceptions.ValueError:
                         print('SKIPPING %s, no samples in range' % '_'.join([ext.name, col.name]))
-            self.synched_data['REVCHECK'] = np.interp(self.data['computerClock'],
+        self.synched_data['TIME']['REVCHECK'] = np.interp(self.splitted_data['TIME']['computerClock'],
                             self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']],
                             self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
                             )
-        self.synched_data['UT'] = cctout(self.data['computerClock'], self.synched_data['GYRO_HID_GPSTIME'])
-        self.data['UT'] = self.synched_data['UT']
+        self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
+        self.splitted_data['TIME']['UT'] = self.synched_data['TIME']['UT']
 
     def write(self):
-        filename = os.path.join(self.base_folder, 'Level1','%s_%dGHz.fits' % (self.day, self.freq))
+        filename = os.path.join(self.base_folder, 'Level1','%s_%dGHz' % (self.day, self.freq))
         print('Writing %s' % filename)
-        f = pycfitsio.create(filename)
-        f.write_HDU_dict('DATA', self.data)
-        f.write_HDU_dict('SERVO', self.synched_data)
-        f.close()
+        #np.save(filename.replace('.fits','_data.npy', self.data))
+        #np.save(filename.replace('.fits','_servo.npy', self.synched_data))
+        pycfitsio.write(filename + '_data.fits', self.splitted_data)
+        pycfitsio.write(filename + '_servo.fits', self.synched_data)
 
 
     def run(self):
