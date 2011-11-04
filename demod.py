@@ -138,22 +138,19 @@ class RawDataReader(object):
         for i in invalid_revs[::-1]:
             #d = np.concatenate([d[:start_of_revs[i]],d[start_of_revs[i+1]:]])
             d = np.delete(d, np.s_[start_of_revs[i]:start_of_revs[i+1]])
-            l.error('No valid data in file %s' % self.filename)
         start_of_revs, = np.where(d['enc']<self.config['ENC_START_TRIGGER'])
         samples_per_rev = np.diff(start_of_revs)
         invalid_revs, = np.where(samples_per_rev != self.config['SEC_PER_REV'])
-        if len(invalid_revs) == len(samples_per_rev):
-            l.error('No valid data in file %s' % self.filename)
-            raise InvalidFileException('No valid data')
-
-        #data_splitted = np.delete(np.split(data_on_disk[:start_of_revs[-1]], start_of_revs[1:-1]), invalid_revs)
-
         outdtype=np.dtype( [('rev',np.float64)] + [(ch,np.uint16,self.config['SEC_PER_REV']) for ch in self.channels_labels] )
-        data = np.zeros(len(d)/self.config['SEC_PER_REV'], dtype=outdtype)
-        d_rev = d[::self.config['SEC_PER_REV']]
-        data['rev'] =  d_rev['rev0'].astype(np.float64) + self.config['SEC_PER_REV'] * d_rev['rev1'] + self.config['SEC_PER_REV']**2 * d_rev['rev2']
-        for ch in self.channels_labels:
-            data[ch] = d[ch].reshape((-1, self.config['SEC_PER_REV']))
+        if len(invalid_revs) == len(start_of_revs):
+            l.error('NO VALID DATA IN FILE')
+            data = np.zeros(0, dtype=outdtype)
+        else:
+            data = np.zeros(len(d)/self.config['SEC_PER_REV'], dtype=outdtype)
+            d_rev = d[::self.config['SEC_PER_REV']]
+            data['rev'] =  d_rev['rev0'].astype(np.float64) + self.config['SEC_PER_REV'] * d_rev['rev1'] + self.config['SEC_PER_REV']**2 * d_rev['rev2']
+            for ch in self.channels_labels:
+                data[ch] = d[ch].reshape((-1, self.config['SEC_PER_REV']))
         return data
 
     def process_raw(self, filename):
