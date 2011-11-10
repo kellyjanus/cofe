@@ -5,7 +5,7 @@ sys.path.append('../code')
 import synclib
 from synclib import *
 
-freq = 15
+freq = 10
 self = synclib.ServoSciSync(base_folder ='/COFE', day = 'all', freq = freq)
 self.load_data()
 plt.figure()

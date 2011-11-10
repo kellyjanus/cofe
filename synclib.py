@@ -77,6 +77,11 @@ def remove_reset(d, offsetsci=None):
     print('selecting section with no resets from index %d to index %d %.2f %% of the total length' % (start, stop, (stop-start)*100./len(d)))
     return s
 
+def index_of_single_sample_jumps(d):
+    jumps,=np.where(np.abs(np.diff(d))>.005 )
+    single_jumps = jumps[np.diff(jumps)==1] + 1
+    return single_jumps
+
 def make_monotonic(d):
     jumps, = np.where(np.diff(d)<0)
     print('Fixing jumps at indices %s, at relative position %s' % (str(jumps), str(jumps.astype(np.double)/len(d)) ))
@@ -146,6 +151,7 @@ class ServoSciSync(object):
         #make_monotonic(self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock'))
         cc = self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')
         jumps, = np.where(np.diff(cc)<0)
+        # apply offsets estimated with gpstime to computerclock of the revcounter
         assert len(jumps) == len(self.offsets)
         for index, offset in zip(jumps, self.offsets):
             cc[index+1:] += offset
@@ -166,6 +172,7 @@ class ServoSciSync(object):
             self.synched_data[device] = OrderedDict()
             cc = ext.data.field('computerClock')
             jumps, = np.where(np.diff(cc)<0)
+        # apply offsets estimated with gpstime to computerclock of each device
             if len(jumps) > 0:
                 offsets = self.offsets
                 if len(jumps) < len(self.offsets):
@@ -180,12 +187,26 @@ class ServoSciSync(object):
                                     ext.data.field(col.name))
                     except exceptions.ValueError:
                         print('SKIPPING %s, no samples in range' % '_'.join([ext.name, col.name]))
-        self.synched_data['TIME']['REVCHECK'] = np.interp(self.splitted_data['TIME']['computerClock'],
+                        self.synched_data['TIME']['REVCHECK'] = np.interp(self.splitted_data['TIME']['computerClock'],
                             self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']],
                             self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
                             )
-        self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
-        self.splitted_data['TIME']['UT'] = self.synched_data['TIME']['UT']
+        #self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
+                if device == 'GYRO_HID':
+                    #Fix gpstime to create the UT column
+                    ut = np.mod((self.servo[device].data['GPSTIME'] + 15.)/3600., 24.)
+                    #remove single sample jumps
+                    ut_mask = np.zeros(len(ut),dtype=np.bool)
+                    ut_mask[index_of_single_sample_jumps(ut)] = True
+                    ut = np.ma.MaskedArray(ut, mask=ut_mask)
+                    day_change_index, = np.where(np.diff(ut)<-23)
+                    assert len(day_change_index) == 1
+                    ut[day_change_index[0]+1:] += 24
+
+
+                    #self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
+                    self.synched_data['TIME']['UT'] = np.interp(self.splitted_data['TIME']['computerClock'], np.ma.MaskedArray(cc, mask=ut.mask).compressed(), ut.compressed()) 
+                    self.splitted_data['TIME']['UT'] = self.synched_data['TIME']['UT']
 
     def write(self):
         filename = os.path.join(self.base_folder, 'Level1','%s_%dGHz' % (self.day, self.freq))
