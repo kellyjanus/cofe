@@ -8,6 +8,10 @@ from collections import OrderedDict
 
 REVCOUNTER_LABEL = {10:'REVCOUNTER_15GHZ', 15:'REVCOUNTER_10GHZ'}
 
+WRAPPING_FIELDS_PI = ['HYBRIDHEADINGANGLE', 'HYBRIDYAWANGLE']
+ROTATION = 80*2.e9
+WRAPPING_FIELDS_360 = ['HEADING']
+
 def cctotime(c):
     return (c-c[0])*2.e-9
 
@@ -91,11 +95,12 @@ def make_monotonic(d):
 class ServoSciSync(object):
     """Synchronizes servo and science data in a single fits file per day"""
 
-    def __init__(self, base_folder = '/home/zonca/COFE/data/sync_data', day = '20110224', freq = 15):
+    def __init__(self, base_folder = '/home/zonca/COFE/data/sync_data', day = '20110224', freq = 15, version=None):
         self.base_folder = base_folder
         self.day = day
         self.freq = freq
         self.synched_data = OrderedDict()
+        self.version = version
         try:
             os.mkdir(os.path.join(self.base_folder, 'Level1'))
         except:
@@ -171,6 +176,7 @@ class ServoSciSync(object):
             ext = self.servo[device]
             self.synched_data[device] = OrderedDict()
             cc = ext.data.field('computerClock')
+
             jumps, = np.where(np.diff(cc)<0)
         # apply offsets estimated with gpstime to computerclock of each device
             if len(jumps) > 0:
@@ -180,17 +186,41 @@ class ServoSciSync(object):
                     offsets = self.offsets[:len(jumps)]
                 for index, offset in zip(jumps, offsets):
                     cc[index+1:] += offset
+
+                #gaps longer than ROTATION are flagged
+                flag = np.ceil(np.interp(self.splitted_data['TIME']['computerClock'],cc[1:], np.diff(cc) > ROTATION)).astype(np.uint8)
+                self.synched_data[device]['FLAG'] = flag
+
                 assert np.all(np.diff(cc) >= 0)
                 for col in ext.columns[1:]:
-                    try:
-                        self.synched_data[device][col.name] = np.interp(self.splitted_data['TIME']['computerClock'], cc, 
-                                    ext.data.field(col.name))
-                    except exceptions.ValueError:
-                        print('SKIPPING %s, no samples in range' % '_'.join([ext.name, col.name]))
-                        self.synched_data['TIME']['REVCHECK'] = np.interp(self.splitted_data['TIME']['computerClock'],
-                            self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']],
-                            self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
-                            )
+                    if col.name in WRAPPING_FIELDS_PI:
+                        print('UNWRAP ' + col.name)
+                        valid = (ext.data[col.name] < np.pi) & (ext.data[col.name] > -np.pi)
+
+                        #unwrap the heading angle 
+                        wraps = np.diff(col.array[valid]) < - .95 * 2 * np.pi #5% tolerance
+                        unwrapped = col.array[valid].copy()
+                        unwrapped[1:] += np.cumsum(wraps) * np.pi * 2
+
+                        #fix time gaps
+                        typical_revlength = np.median(np.diff(cc[wraps]))
+                        h_jumps = np.diff(cc[valid]) > typical_revlength * .8
+                        h_jumps_scaled = h_jumps.astype(np.double) 
+                        h_jumps_scaled[h_jumps] *= np.round(np.diff(cc[valid])[h_jumps]/typical_revlength)
+                        unwrapped[1:] += np.cumsum(h_jumps_scaled) * np.pi * 2 
+
+                        #interpolate and reset to -pi pi
+                        self.synched_data[device][col.name] = np.mod(np.interp(self.splitted_data['TIME']['computerClock'], cc[valid], unwrapped) + np.pi, 2*np.pi) - np.pi
+                    else:
+                        try:
+                            self.synched_data[device][col.name] = np.interp(self.splitted_data['TIME']['computerClock'], cc, 
+                                        ext.data.field(col.name))
+                        except exceptions.ValueError:
+                            print('SKIPPING %s, no samples in range' % '_'.join([ext.name, col.name]))
+                            self.synched_data['TIME']['REVCHECK'] = np.interp(self.splitted_data['TIME']['computerClock'],
+                                self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']],
+                                self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
+                                )
         #self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
                 if device == 'GYRO_HID':
                     #Fix gpstime to create the UT column
@@ -209,11 +239,16 @@ class ServoSciSync(object):
                     self.splitted_data['TIME']['UT'] = self.synched_data['TIME']['UT']
 
     def write(self):
-        filename = os.path.join(self.base_folder, 'Level1','%s_%dGHz' % (self.day, self.freq))
+        folder = os.path.join(self.base_folder, 'Level1', '%s' % self.version)
+        try:
+            os.mkdir(folder)
+        except:
+            pass
+        filename = os.path.join(folder,'%s_%dGHz_v%s' % (self.day, self.freq, self.version))
         print('Writing %s' % filename)
         #np.save(filename.replace('.fits','_data.npy', self.data))
         #np.save(filename.replace('.fits','_servo.npy', self.synched_data))
-        pycfitsio.write(filename + '_data.fits', self.splitted_data)
+        pycfitsio.write(filename +  '_data.fits', self.splitted_data)
         pycfitsio.write(filename + '_servo.fits', self.synched_data)
 
 

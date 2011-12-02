@@ -6,7 +6,7 @@ import synclib
 from synclib import *
 
 freq = 10
-self = synclib.ServoSciSync(base_folder ='/COFE', day = 'all', freq = freq)
+self = synclib.ServoSciSync(base_folder ='/COFE', day = 'all', freq = freq, version='debug')
 self.load_data()
 plt.figure()
 plt.title('%d GHz REV' % freq)
