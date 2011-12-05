@@ -105,6 +105,11 @@ class ServoSciSync(object):
             os.mkdir(os.path.join(self.base_folder, 'Level1'))
         except:
             pass
+        self.out_folder = os.path.join(self.base_folder, 'Level1', '%s' % self.version)
+        try:
+            os.mkdir(self.out_folder)
+        except:
+            pass
 
     def load_data(self):
         self.servo = pyfits.open(os.path.join(self.base_folder, 'servo', '%s.fits' % self.day))
@@ -144,11 +149,14 @@ class ServoSciSync(object):
         device = 'GYRO_HID'
         cc = self.servo[device].data.field('computerClock')
         gpstime = self.servo[device].data.field('GPSTIME')
-        jumps, = np.where(np.diff(cc)<0)
-        print('Found clock jumps at indices %s, at relative position %s' % (str(jumps), str(jumps.astype(np.double)/len(cc)) ))
+        self.offsets_indices, = np.where(np.diff(cc)<0)
+        print('Found clock jumps at indices %s, at relative position %s' % (str(self.offsets_indices), str(self.offsets_indices.astype(np.double)/len(cc)) ))
         self.offsets = [] 
-        for j in jumps:
+        for j in self.offsets_indices:
             self.offsets.append(cc[j] + 2e9 * (gpstime[j+1] - gpstime[j]) - cc[j+1])
+
+        self.offsets_cc = cc[self.offsets_indices]  
+        self.offsets_cc[1:] += np.cumsum(self.offsets[:-1])
             
     def sync_clock(self):
         print('SCI computer clock')
@@ -237,20 +245,26 @@ class ServoSciSync(object):
                     #self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
                     self.synched_data['TIME']['UT'] = np.interp(self.splitted_data['TIME']['computerClock'], np.ma.MaskedArray(cc, mask=ut.mask).compressed(), ut.compressed()) 
                     self.splitted_data['TIME']['UT'] = self.synched_data['TIME']['UT']
+                    self.offsets_ut = np.interp(self.offsets_cc, np.ma.MaskedArray(cc, mask=ut.mask).compressed(), ut.compressed()) 
+                    np.savetxt(self.out_folder + '/cc_offsets_%dGHz_cc-ut-off.txt' % self.freq, (self.offsets_cc, self.offsets_ut, self.offsets))
 
     def write(self):
-        folder = os.path.join(self.base_folder, 'Level1', '%s' % self.version)
-        try:
-            os.mkdir(folder)
-        except:
-            pass
-        filename = os.path.join(folder,'%s_%dGHz_v%s' % (self.day, self.freq, self.version))
+        filename = os.path.join(self.out_folder,'%s_%dGHz_v%s' % (self.day, self.freq, self.version))
         print('Writing %s' % filename)
         #np.save(filename.replace('.fits','_data.npy', self.data))
         #np.save(filename.replace('.fits','_servo.npy', self.synched_data))
         pycfitsio.write(filename +  '_data.fits', self.splitted_data)
         pycfitsio.write(filename + '_servo.fits', self.synched_data)
 
+    def write_devices_with_ut(self):
+        """Devices have already a CC column fixed, so we just interpolate the UT to that sampling"""
+        filename = os.path.join(self.out_folder,'utservo_%s_%dGHz_v%s' % (self.day, self.freq, self.version))
+        for ext in self.servo[1:]:
+            if not ext.name in self.devices:
+                self.servo.remove(ext)
+        for ext in self.servo[1:]:
+            ext.columns.add_col(pyfits.Column('UT', format='E', array=np.interp(ext.data['computerClock'], self.splitted_data['TIME']['computerClock'], self.splitted_data['TIME']['UT'])))
+        self.servo.writeto(filename)
 
     def run(self):
         self.load_data()
