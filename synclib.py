@@ -140,6 +140,7 @@ class ServoSciSync(object):
         self.counters = {
                     'servo_range' : servo_range,
                     'servo' : servo_count[servo_range],
+                    'servocc': self.servo[REVCOUNTER_LABEL[self.freq]].data['computerClock'][servo_range],
                     'sci_range' : None,
                     'sci' : sci_count #fix_counter_jumps(sci_count)
                  } 
@@ -169,13 +170,16 @@ class ServoSciSync(object):
         for index, offset in zip(jumps, self.offsets):
             cc[index+1:] += offset
 
-        self.counters['fservocc'] = np.arange( cc[self.counters['servo_range']][0], cc[self.counters['servo_range']][-1], (1/40.)*2e9 )
+        self.counters['fservocc'] = np.arange(cc[self.counters['servo_range']][0], cc[self.counters['servo_range']][-1], (1/140.)*2e9 )
         self.counters['fservo'] = np.interp( self.counters['fservocc'], cc[self.counters['servo_range']], self.counters['servo'])
+        self.counters['flag'] = np.ceil(np.interp(self.counters['fservocc'], cc[self.counters['servo_range']][1:], np.diff(cc[self.counters['servo_range']])>ROTATION))
         self.synched_data['TIME'] = OrderedDict()
         self.synched_data['TIME']['computerClock'] = np.around(np.interp(self.counters['sci'], self.counters['fservo'], self.counters['fservocc'])).astype(np.int64)
         #self.synched_data['computerClock'] = np.around(np.interp(self.counters['sci'], self.counters['servo'], 
         #            cc[self.counters['servo_range']])).astype(np.int64)
         self.splitted_data['TIME']['computerClock'] = self.synched_data['TIME']['computerClock']
+        self.synched_data['TIME']['norevcountflag'] = np.ceil(np.interp(self.synched_data['TIME']['computerClock'], self.counters['fservocc'], self.counters['flag'])).astype(np.uint8)
+        self.splitted_data['TIME']['norevcountflag'] = self.synched_data['TIME']['norevcountflag'] 
 
     def sync_devices(self):
         print('Synching devices')
@@ -243,9 +247,10 @@ class ServoSciSync(object):
 
 
                     #self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
-                    self.synched_data['TIME']['UT'] = np.interp(self.splitted_data['TIME']['computerClock'], np.ma.MaskedArray(cc, mask=ut.mask).compressed(), ut.compressed()) 
+                    self.ut = np.interp(self.counters['fservocc'], np.ma.MaskedArray(cc, mask=ut.mask).compressed(), ut.compressed()) 
+                    self.synched_data['TIME']['UT'] = np.interp(self.splitted_data['TIME']['computerClock'],  self.counters['fservocc'], self.ut)
                     self.splitted_data['TIME']['UT'] = self.synched_data['TIME']['UT']
-                    self.offsets_ut = np.interp(self.offsets_cc, np.ma.MaskedArray(cc, mask=ut.mask).compressed(), ut.compressed()) 
+                    self.offsets_ut = np.interp(self.offsets_cc,  self.counters['fservocc'], self.ut)
                     np.savetxt(self.out_folder + '/cc_offsets_%dGHz_cc-ut-off.txt' % self.freq, (self.offsets_cc, self.offsets_ut, self.offsets))
 
     def write(self):
@@ -258,18 +263,33 @@ class ServoSciSync(object):
 
     def write_devices_with_ut(self):
         """Devices have already a CC column fixed, so we just interpolate the UT to that sampling"""
-        filename = os.path.join(self.out_folder,'utservo_%s_%dGHz_v%s' % (self.day, self.freq, self.version))
-        for ext in self.servo[1:]:
-            if not ext.name in self.devices:
-                self.servo.remove(ext)
-        for ext in self.servo[1:]:
-            ext.columns.add_col(pyfits.Column('UT', format='E', array=np.interp(ext.data['computerClock'], self.splitted_data['TIME']['computerClock'], self.splitted_data['TIME']['UT'])))
-        self.servo.writeto(filename)
 
-    def run(self):
+        #free memory
+        try:
+            del self.splitted_data
+        except:
+            pass
+
+        filename = os.path.join(self.out_folder,'utservo_%s_v%s.fits' % (self.day, self.version))
+        self.utservo = OrderedDict()
+        for device in self.devices:
+            self.utservo[device] = OrderedDict()
+            self.utservo[device]['UT'] = np.interp(self.servo[device].data['computerClock'],  self.counters['fservocc'], self.ut)
+            for colname in self.servo[device].data.dtype.names:
+                self.utservo[device][colname] = np.array(self.servo[device].data[colname])
+
+        print('Writing ' + filename)
+        pycfitsio.write(filename, self.utservo)
+
+    def process(self):
         self.load_data()
         self.fix_counters()
         self.find_clock_offsets_from_gpstime()
         self.sync_clock()
         self.sync_devices()
+
+    def run(self):
+        self.process()
         self.write()
+        if self.freq == 10: # needed just once
+            self.write_devices_with_ut()
