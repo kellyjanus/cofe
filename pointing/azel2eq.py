@@ -3,7 +3,7 @@ import numpy as np
 from scipy import constants
 
 import pycfitsio as fits
-from pytpm import *
+from pytpm import convert, tpm 
 import ephem
 
 def freq2wavelength(freq):
@@ -52,11 +52,10 @@ lon = np.interp(ut, servo_ut[good_lon], servo_lon[good_lon])
 ra = []
 dec = []
 ut_out = []
-
-for i in range(0, len(ut),20):
-
-    print(i * 100./len(ut))
+import time
+def conv(i):
     v6 = convert.cat2v6(alpha = az[i], delta = el[i])
+    start_clock = time.clock()
     v6c = convert.convertv6(v6=v6,
         utc=START_JULIAN + (ut[i]-MISSIONSTART)/24.,# delta_at=-999, delta_ut=-999,
         s1=tpm.TPM_S19, s2=tpm.TPM_S07,
@@ -64,10 +63,17 @@ for i in range(0, len(ut),20):
         lon=lon[i], lat=lat[i], alt=alt[i],
         xpole=0.0, ypole=0.0,
         T=273.15, P=1013.25, H=0.0, wavelength=freq2wavelength(freq))
+    print("TIME[%d]:%.2g s" % (i, time.clock() - start_clock))
     cat = convert.v62cat(v6c)
+    return cat['alpha'], cat['delta']
+#for i in range(0, len(ut),20):
+for i in range(0, 10):
+
+    #print(i * 100./len(ut))
     ut_out.append(ut[i])
-    ra.append(cat['alpha'])
-    dec.append(cat['delta'])
+    ra_i, dec_i = conv(i)
+    ra.append(ra_i)
+    dec.append(dec_i)
 
 np.save('ut_out_%d_ch%d' % (freq, pnt_ch), np.array(ut_out))
 np.save('ra_%d_ch%d' % (freq, pnt_ch)  ,np.array(ra) )
