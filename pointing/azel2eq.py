@@ -3,7 +3,6 @@ import numpy as np
 from scipy import constants
 
 import pycfitsio as fits
-from pytpm import convert, tpm 
 import ephem
 
 def freq2wavelength(freq):
@@ -44,32 +43,51 @@ good_alt = servo_good & (servo_alt > 4000) & (servo_alt < 1e5)
 alt = np.interp(ut, servo_ut[good_alt], servo_alt[good_alt])
 servo_lat = np.degrees(servo_file['GYRO_HID'].read_column('HYBRIDLATITUDE'))
 good_lat =  servo_good &(servo_lat < 37) & (servo_lat > 32)
-lat = np.interp(ut, servo_ut[good_lat], servo_lat[good_lat])
+lat = np.radians(np.interp(ut, servo_ut[good_lat], servo_lat[good_lat]))
 servo_lon = np.degrees(servo_file['GYRO_HID'].read_column('HYBRIDLONGITUDE'))
 good_lon = servo_good & (servo_lon > -114) & (servo_lon < -86)
-lon = np.interp(ut, servo_ut[good_lon], servo_lon[good_lon])
+lon = np.radians(np.interp(ut, servo_ut[good_lon], servo_lon[good_lon]))
 
+J0 = ephem.julian_date(0)
 ra = []
 dec = []
 ut_out = []
 import time
+#def conv(i):
+#    ra, dec = tpmu.convert(x=az[i], y=el[i], s1=19, s2=7, epoch=2451545.0,
+#                  equinox=2451545.0, timetag=START_JULIAN + (ut[i]-MISSIONSTART)/24., 
+#                  lon=lon[i], lat=lat[i], alt=alt[i],
+#                  T=273.15, P=1023.25,
+#                  H=0.0, W=freq2wavelength(freq))
+#    return ra,dec
+
 def conv(i):
-    v6 = convert.cat2v6(alpha = az[i], delta = el[i])
-    start_clock = time.clock()
-    v6c = convert.convertv6(v6=v6,
-        utc=START_JULIAN + (ut[i]-MISSIONSTART)/24.,# delta_at=-999, delta_ut=-999,
-        s1=tpm.TPM_S19, s2=tpm.TPM_S07,
-        epoch=tpm.J2000, equinox=tpm.J2000,
-        lon=lon[i], lat=lat[i], alt=alt[i],
-        xpole=0.0, ypole=0.0,
-        T=273.15, P=1013.25, H=0.0, wavelength=freq2wavelength(freq))
-    print("TIME[%d]:%.2g s" % (i, time.clock() - start_clock))
-    cat = convert.v62cat(v6c)
-    return cat['alpha'], cat['delta']
+
+    observer = ephem.Observer()
+    observer.lon = lon[i]
+    observer.lat = lat[i]
+    observer.elevation = alt[i]  
+    observer.date = START_JULIAN + (ut[i]-MISSIONSTART)/24. - J0
+
+    return observer.radec_of(az[i], el[i])
+
+#def conv(i):
+#    v6 = convert.cat2v6(alpha = az[i], delta = el[i])
+#    start_clock = time.clock()
+#    v6c = convert.convertv6(v6=v6,
+#        utc=START_JULIAN + (ut[i]-MISSIONSTART)/24.,# delta_at=-999, delta_ut=-999,
+#        s1=tpm.TPM_S19, s2=tpm.TPM_S07,
+#        epoch=tpm.J2000, equinox=tpm.J2000,
+#        lon=lon[i], lat=lat[i], alt=alt[i],
+#        xpole=0.0, ypole=0.0,
+#        T=273.15, P=1013.25, H=0.0, wavelength=freq2wavelength(freq))
+#    print("TIME[%d]:%.2g s" % (i, time.clock() - start_clock))
+#    cat = convert.v62cat(v6c)
+#    return cat['alpha'], cat['delta']
 #for i in range(0, len(ut),20):
 for i in range(0, 10):
 
-    #print(i * 100./len(ut))
+    print(i * 100./len(ut))
     ut_out.append(ut[i])
     ra_i, dec_i = conv(i)
     ra.append(ra_i)
