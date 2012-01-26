@@ -84,9 +84,9 @@ def conv(i):
 #    print("TIME[%d]:%.2g s" % (i, time.clock() - start_clock))
 #    cat = convert.v62cat(v6c)
 #    return cat['alpha'], cat['delta']
-#for i in range(0, len(ut),20):
-for i in range(0, 10):
+#for i in range(0, 10):
 
+for i in range(0, len(ut)):
     print(i * 100./len(ut))
     ut_out.append(ut[i])
     ra_i, dec_i = conv(i)
