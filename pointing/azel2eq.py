@@ -11,8 +11,10 @@ def freq2wavelength(freq):
         """Freq [GHz] to wavelength [microns]"""
         return constants.c / freq / 1e3
 
-freq = 15
+freq = 10
 pointing_file = fits.open('data/v5_all_%dghz_pointing.fits' % freq)
+
+channels = list(set([int(c.translate(None, 'AZEL')) for c in pointing_file[0].dtype.names]))
 data_file = fits.open('data/all_%dGHz_v0.5_data.fits' % freq)
 servo_file = fits.open('data/utservo_all_v0.5.fits')
 
@@ -58,7 +60,7 @@ def conv(i, azimuth, elevation, utc):
 
 with fits.create('/COFE/Level1/0.5/pointing_%d.fits' % (freq)) as f:
     f.write_HDU("TIME", OrderedDict({'UT': ut}))
-    for pnt_ch in range(1, 13+1, 2):
+    for pnt_ch in channels:
         print("Channel %d" % pnt_ch)
         az = np.radians(pointing_file[0].read_column('az%d' % pnt_ch)[good])
         el = np.radians(pointing_file[0].read_column('el%d' % pnt_ch)[good])
