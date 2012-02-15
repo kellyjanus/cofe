@@ -4,7 +4,9 @@ import matplotlib.pyplot as plt
 import pyfits
 
 #load utservo
-raw_file = pyfits.open('/COFE/Level1/0.6/utservo_all_v0.6.fits')
+version = '0.6'
+folder = '/COFE/Level1/%s/' % version
+raw_file = pyfits.open(folder + 'utservo_all_v%s.fits' % version)
 ut = raw_file['GYRO_HID'].data['UT']
 az = raw_file['GYRO_HID'].data['HYBRIDHEADINGANGLE']
 
@@ -48,8 +50,8 @@ h_jumps_scaled[h_jumps] *= np.round(np.diff(ut)[h_jumps]/typical_revlength)
 unwrapped[1:] += np.cumsum(h_jumps_scaled) * np.pi * 2 
 
 #read ut science
-ut_sci_10 = pyfits.getdata('/COFE/Level1/0.6/all_10GHz_v0.6_data.fits', 'TIME')['UT']
-ut_sci_15 = pyfits.getdata('/COFE/Level1/0.6/all_15GHz_v0.6_data.fits', 'TIME')['UT']
+ut_sci_10 = pyfits.getdata(folder + 'all_10GHz_v0.6_data.fits', 'TIME')['UT']
+ut_sci_15 = pyfits.getdata(folder + 'all_15GHz_v0.6_data.fits', 'TIME')['UT']
 
 #interpolate and reset to -pi pi
 fixed_az_10 = np.mod(np.interp(ut_sci_10, ut, unwrapped) + np.pi, 2*np.pi) - np.pi
@@ -61,7 +63,7 @@ plt.xlabel('UT')
 plt.savefig('fixedaz.png')
 
 import pycfitsio as fits
-fits.write('fixaz.fits', OrderedDict([
+fits.write(folder + 'fixaz.fits', OrderedDict([
     ('10GHz', OrderedDict([('UT', ut_sci_10), ('AZ', fixed_az_10)])),
     ('15GHz', OrderedDict([('UT', ut_sci_15), ('AZ', fixed_az_15)]))
     ]))
