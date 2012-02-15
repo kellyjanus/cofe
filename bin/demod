@@ -37,7 +37,7 @@ def static_process(d):
         l.error('No files found')
     for f in files:
         try:
-            demod.DataDemod(f).run()
+            demod.demodulate(f)
         except demod.InvalidFileException:
             pass
 
