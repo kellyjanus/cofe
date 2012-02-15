@@ -42,7 +42,7 @@ plt.legend(loc=0); plt.grid()
 plt.figure()
 plt.title('%d GHz REV' % freq)
 plt.plot(self.splitted_data['TIME']['computerClock'], self.counters['sci'],'r.',label='SCI REV')
-plt.plot(self.synched_data['TIME']['computerClock'], self.synched_data['TIME']['REVCHECK'],'.', label='SERVO REV')
+#plt.plot(self.synched_data['TIME']['computerClock'], self.synched_data['TIME']['REVCHECK'],'.', label='SERVO REV')
 plt.legend(); plt.grid(); plt.xlabel('computerClock')
 
 plt.figure()

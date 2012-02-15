@@ -181,77 +181,81 @@ class ServoSciSync(object):
         self.synched_data['TIME']['norevcountflag'] = np.ceil(np.interp(self.synched_data['TIME']['computerClock'], self.counters['fservocc'], self.counters['flag'])).astype(np.uint8)
         self.splitted_data['TIME']['norevcountflag'] = self.synched_data['TIME']['norevcountflag'] 
 
+    def fix_devices_cc(self, cc_int):
+        cc = cc_int.astype(np.double)
+        jumps, = np.where(np.diff(cc)<0)
+        # apply offsets estimated with gpstime to computerclock of each device
+        offsets = self.offsets
+        if len(jumps) < len(self.offsets):
+            print('Missing data in device')
+            offsets = self.offsets[:len(jumps)]
+        for index, offset in zip(jumps, offsets):
+            cc[index+1:] += offset
+        return cc
+
     def sync_devices(self):
         print('Synching devices')
         for device in self.devices:
             print(device)
             ext = self.servo[device]
             self.synched_data[device] = OrderedDict()
-            cc = ext.data.field('computerClock')
+            cc = self.fix_devices_cc(ext.data.field('computerClock'))
 
-            jumps, = np.where(np.diff(cc)<0)
-        # apply offsets estimated with gpstime to computerclock of each device
-            if len(jumps) > 0:
-                offsets = self.offsets
-                if len(jumps) < len(self.offsets):
-                    print('Missing data in %s' % device)
-                    offsets = self.offsets[:len(jumps)]
-                for index, offset in zip(jumps, offsets):
-                    cc[index+1:] += offset
+            #gaps longer than ROTATION are flagged
+            flag = np.ceil(np.interp(self.splitted_data['TIME']['computerClock'],cc[1:], np.diff(cc) > ROTATION)).astype(np.uint8)
+            self.synched_data[device]['FLAG'] = flag
 
-                #gaps longer than ROTATION are flagged
-                flag = np.ceil(np.interp(self.splitted_data['TIME']['computerClock'],cc[1:], np.diff(cc) > ROTATION)).astype(np.uint8)
-                self.synched_data[device]['FLAG'] = flag
+            assert np.all(np.diff(cc) >= 0)
+            for col in ext.columns[1:]:
+                if col.name in WRAPPING_FIELDS_PI:
+                    print('UNWRAP ' + col.name)
+                    valid = (ext.data[col.name] < np.pi) & (ext.data[col.name] > -np.pi)
 
-                assert np.all(np.diff(cc) >= 0)
-                for col in ext.columns[1:]:
-                    if col.name in WRAPPING_FIELDS_PI:
-                        print('UNWRAP ' + col.name)
-                        valid = (ext.data[col.name] < np.pi) & (ext.data[col.name] > -np.pi)
+                    #unwrap the heading angle 
+                    wraps = np.diff(col.array[valid]) < - .95 * 2 * np.pi #5% tolerance
+                    unwrapped = col.array[valid].copy()
+                    unwrapped[1:] += np.cumsum(wraps) * np.pi * 2
 
-                        #unwrap the heading angle 
-                        wraps = np.diff(col.array[valid]) < - .95 * 2 * np.pi #5% tolerance
-                        unwrapped = col.array[valid].copy()
-                        unwrapped[1:] += np.cumsum(wraps) * np.pi * 2
+                    #fix time gaps
+                    typical_revlength = np.median(np.diff(cc[wraps]))
+                    h_jumps = np.diff(cc[valid]) > typical_revlength * .8
+                    h_jumps_scaled = h_jumps.astype(np.double) 
+                    h_jumps_scaled[h_jumps] *= np.round(np.diff(cc[valid])[h_jumps]/typical_revlength)
+                    unwrapped[1:] += np.cumsum(h_jumps_scaled) * np.pi * 2 
 
-                        #fix time gaps
-                        typical_revlength = np.median(np.diff(cc[wraps]))
-                        h_jumps = np.diff(cc[valid]) > typical_revlength * .8
-                        h_jumps_scaled = h_jumps.astype(np.double) 
-                        h_jumps_scaled[h_jumps] *= np.round(np.diff(cc[valid])[h_jumps]/typical_revlength)
-                        unwrapped[1:] += np.cumsum(h_jumps_scaled) * np.pi * 2 
+                    #interpolate and reset to -pi pi
+                    self.synched_data[device][col.name] = np.mod(np.interp(self.splitted_data['TIME']['computerClock'], cc[valid], unwrapped) + np.pi, 2*np.pi) - np.pi
+                else:
+                    try:
+                        self.synched_data[device][col.name] = np.interp(self.splitted_data['TIME']['computerClock'], cc, 
+                                    ext.data.field(col.name))
+                    except exceptions.ValueError:
+                        print('SKIPPING %s, no samples in range' % '_'.join([ext.name, col.name]))
+                        self.synched_data['TIME']['REVCHECK'] = np.interp(self.splitted_data['TIME']['computerClock'],
+                            self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']],
+                            self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
+                            )
+    #self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
+            if device == 'GYRO_HID':
+                #Fix gpstime to create the UT column
+                ut = np.mod((self.servo[device].data['GPSTIME'] + 15.)/3600., 24.)
+                #remove single sample jumps
+                ut_mask = np.zeros(len(ut),dtype=np.bool)
+                ut_mask[index_of_single_sample_jumps(ut)] = True
+                ut = np.ma.MaskedArray(ut, mask=ut_mask)
+                day_change_index, = np.where(np.diff(ut)<-23)
+                assert len(day_change_index) == 1
+                ut[day_change_index[0]+1:] += 24
 
-                        #interpolate and reset to -pi pi
-                        self.synched_data[device][col.name] = np.mod(np.interp(self.splitted_data['TIME']['computerClock'], cc[valid], unwrapped) + np.pi, 2*np.pi) - np.pi
-                    else:
-                        try:
-                            self.synched_data[device][col.name] = np.interp(self.splitted_data['TIME']['computerClock'], cc, 
-                                        ext.data.field(col.name))
-                        except exceptions.ValueError:
-                            print('SKIPPING %s, no samples in range' % '_'.join([ext.name, col.name]))
-                            self.synched_data['TIME']['REVCHECK'] = np.interp(self.splitted_data['TIME']['computerClock'],
-                                self.servo[REVCOUNTER_LABEL[self.freq]].data.field('computerClock')[self.counters['servo_range']],
-                                self.servo[REVCOUNTER_LABEL[self.freq]].data.field('value')[self.counters['servo_range']]
-                                )
-        #self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
-                if device == 'GYRO_HID':
-                    #Fix gpstime to create the UT column
-                    ut = np.mod((self.servo[device].data['GPSTIME'] + 15.)/3600., 24.)
-                    #remove single sample jumps
-                    ut_mask = np.zeros(len(ut),dtype=np.bool)
-                    ut_mask[index_of_single_sample_jumps(ut)] = True
-                    ut = np.ma.MaskedArray(ut, mask=ut_mask)
-                    day_change_index, = np.where(np.diff(ut)<-23)
-                    assert len(day_change_index) == 1
-                    ut[day_change_index[0]+1:] += 24
+                # Leave ut in original sampling rate
+                self.utcc = np.ma.MaskedArray(cc, mask=ut.mask).compressed()
+                self.ut = ut.compressed()
 
-
-                    #self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
-                    self.ut = np.interp(self.counters['fservocc'], np.ma.MaskedArray(cc, mask=ut.mask).compressed(), ut.compressed()) 
-                    self.synched_data['TIME']['UT'] = np.interp(self.splitted_data['TIME']['computerClock'],  self.counters['fservocc'], self.ut)
-                    self.splitted_data['TIME']['UT'] = self.synched_data['TIME']['UT']
-                    self.offsets_ut = np.interp(self.offsets_cc,  self.counters['fservocc'], self.ut)
-                    np.savetxt(self.out_folder + '/cc_offsets_%dGHz_cc-ut-off.txt' % self.freq, (self.offsets_cc, self.offsets_ut, self.offsets))
+                #self.synched_data['TIME']['UT'] = cctout(self.splitted_data['TIME']['computerClock'], self.synched_data['GYRO_HID']['GPSTIME'])
+                self.synched_data['TIME']['UT'] = np.interp(self.splitted_data['TIME']['computerClock'],  self.utcc, self.ut)
+                self.splitted_data['TIME']['UT'] = self.synched_data['TIME']['UT']
+                self.offsets_ut = np.interp(self.offsets_cc,  self.utcc, self.ut)
+                np.savetxt(self.out_folder + '/cc_offsets_%dGHz_cc-ut-off.txt' % self.freq, (self.offsets_cc, self.offsets_ut, self.offsets))
 
     def write(self):
         filename = os.path.join(self.out_folder,'%s_%dGHz_v%s' % (self.day, self.freq, self.version))
@@ -274,7 +278,7 @@ class ServoSciSync(object):
         self.utservo = OrderedDict()
         for device in self.devices:
             self.utservo[device] = OrderedDict()
-            self.utservo[device]['UT'] = np.interp(self.servo[device].data['computerClock'],  self.counters['fservocc'], self.ut)
+            self.utservo[device]['UT'] = np.interp(self.fix_devices_cc(self.servo[device].data['computerClock']),  self.utcc, self.ut)
             for colname in self.servo[device].data.dtype.names:
                 self.utservo[device][colname] = np.array(self.servo[device].data[colname])
 
