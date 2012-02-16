@@ -1,4 +1,5 @@
 import numpy as np
+import os
 from ConfigParser import ConfigParser
 
 config = dict(  NCHAN=16, 
@@ -11,7 +12,7 @@ channels_labels = ['ch%d' % i for i in range(config['NCHAN'])]
 
 # Read phases
 phases = ConfigParser(dict(((ch,'0') for ch in channels_labels)))
-phases.read('phases.cfg')
+phases.read(os.path.join(os.path.dirname(__file__), 'phases.cfg'))
 
 # Structure of the data we read from the .dat files:
 dat_dtype = np.dtype( [(ch,np.uint16) for ch in channels_labels] + 
