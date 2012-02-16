@@ -5,6 +5,7 @@ import math
 import pyfits
 import logging as l
 from exceptions import Exception
+from optparse import OptionParser
 from glob import glob
 
 from . import utils
@@ -54,13 +55,15 @@ telescopes' .dat files."""
 #  Return an array 49 elements wide:
 #    (revolution number + mean TQU of each channel) for each revolution.
 
-def demodulate(data):
+def demodulate(data, freq, number_of_phases=8):
     """Demodulates input revdata dataset created by datparsing.create_revdata
 
     Parameters
     ----------
     data : ndarray
         input data of dtype rev_dtype
+    freq : int
+        10 or 15, required to get phases
 
     Returns
     -------
@@ -71,7 +74,7 @@ def demodulate(data):
     demod_data['rev'] = data['rev']
     for ch in channels_labels:
         calibdata = data[ch]
-        channel_phase = phases.getint('DEFAULT', ch)
+        channel_phase = phases.getint('%dGHz' % freq, ch)
         q_commutator = square_wave(config['SEC_PER_REV'], period=8, phase=channel_phase)
         u_commutator = square_wave(config['SEC_PER_REV'], period=8, phase=channel_phase, U=True)
         demod_data[ch]['T'] = np.mean(calibdata,axis=1)
@@ -79,20 +82,22 @@ def demodulate(data):
         demod_data[ch]['U'] = np.mean(calibdata*u_commutator,axis=1)
     return demod_data
 
-def demodulate_dat(filename):
+def demodulate_dat(filename, freq):
     """Reads, reshapes and demodulate .dat file
 
     Parameters
     ----------
     filename : str
         .dat filename
+    freq : int
+        10 or 15, required to get phases
 
     Returns
     -------
     demod_data : ndarray
         demodulated data of dtype demod_dtype
     """
-    return demodulate(datparsing.create_revdata(datparsing.open_raw(filename)))
+    return demodulate(datparsing.create_revdata(datparsing.open_raw(filename)), freq=freq)
 
 def write_fits(demod_data, outfilename):
     """Write the demod data dictionary or compound array to a fits file
@@ -122,6 +127,7 @@ if __name__ == '__main__':
     Demodulate a list of .dat files'''
     parser = OptionParser(usage)
     parser.add_option("-v", "--verbose", action="store_true", dest="verbose", default=False)
+    parser.add_option("-f", "--freq", action="store", type="int", dest='freq')
     (options, args) = parser.parse_args()
     if len(args) < 1:
         parser.print_help()
@@ -131,5 +137,5 @@ if __name__ == '__main__':
     else:
         l.basicConfig(level=l.WARNING)
     for f in args:
-        demod_data = demodulate_dat(f)
+        demod_data = demodulate_dat(f, options.freq)
         write_fits(demod_data, f.replace('.dat', '.fits'))

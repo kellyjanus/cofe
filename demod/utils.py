@@ -1,4 +1,5 @@
 import numpy as np
+import math
 
 def adu2volts(adu):
     """Convert ADU output into volts
@@ -12,18 +13,23 @@ def adu2volts(adu):
     -------
     volts : float
         value converted into volts
+
+    Examples
+    --------
+    >>> adu2volts(2.**12)
+    -8.75
     """
     return adu * 20./2**16 - 10
 
-def square_wave(total_points, period, phase=0, U=False):
+def square_wave(total_points, number_of_phases, phase=0, U=False):
     """Square wave [+1,-1]
     
     Parameters
     ----------
     total_points : int
         length of the output array
-    period : int
-        period length in number of samples
+    number_of_phases : int
+        number of phases to divide the total points into
     phase : int, optional
         phase in number of samples
     U : bool, optional
@@ -35,14 +41,19 @@ def square_wave(total_points, period, phase=0, U=False):
         output array with square wave
     """ 
 
-    eighth = math.floor(total_points/period)
-    if U:
-        phase += eighth/2
-    commutator = np.array([])
-    for i in range(period):
-        sign = 1
-        if i % 2:
-            sign = -1
-        commutator = np.concatenate([commutator, sign * np.ones(eighth)])
-    return np.roll(commutator,int(phase))
+    period_length = total_points // number_of_phases
 
+    # U is shifted by half period
+    if U:
+        phase += period_length // 2
+
+    # create +1, -1, +1, -1 array with 1 element for each state
+    states_multiplier = np.ones(number_of_phases)
+    states_multiplier[1::2] *= -1
+    
+    # repeat by the length of the period
+    commutator = np.repeat(states_multiplier, period_length)
+
+    # apply the phases
+    out = np.roll(commutator,int(phase))
+    return out
