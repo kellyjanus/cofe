@@ -1,6 +1,6 @@
 import exceptions
 import pyfits
-import pycfitsio
+import pycfitsio as fits
 import os
 import numpy as np
 from numpy.lib.recfunctions import append_fields
@@ -12,85 +12,130 @@ WRAPPING_FIELDS_PI = ['HYBRIDHEADINGANGLE', 'HYBRIDYAWANGLE']
 ROTATION = 80*2.e9
 WRAPPING_FIELDS_360 = ['HEADING']
 
-def cctotime(c):
-    return (c-c[0])*2.e-9
+DEVICES = ['ANALOGCHANNELS', 'MAGNETOMETER', 'ASHTECH', 'GYRO_HID']
 
-def cctout(cc, gpstime):
-    """cc and gpstime must be already synched"""
-    utc = np.mod(((gpstime+15.)/3600.), 24)
-    ut = utc[0]+(((cc - cc[0])*2e-9)/3600.)
-    return ut
+def find_clock_offsets_from_gpstime(cc, gpstime):
+    """Computes computerClock offsets after restarts using gpstime
+    
+    Parameters
+    ----------
+    cc : ndarray
+        computerClock array
+    gpstime : ndarray
+        gpstime array
 
-def fix_counter_jumps(d):
-    """Removes jumps by linear fitting and removing points further than a predefined threshold, then linearly interpolates to the full array"""
-    THRESHOLD = 3
-    t = np.arange(len(d))
-    ar, br = np.polyfit(t,d,1)
-    lin_d = np.polyval([ar, br], t)
-    valid = np.abs(d - lin_d) < THRESHOLD
-    d_fix = np.interp(t, t[valid], d[valid], left=d[valid][0]-1, right=d[valid][-1]+1)
-    return d_fix.astype(np.int)
+    Returns:
+    offsets : ndarray
+        offsets to apply to computerclock to compensate for restarts
+    """
 
-def fix_counter_jumps_diff(d):
-    """Removes 1 sample jumps by checking the sample to sample difference"""
-    THRESHOLD = 5
-    t = np.arange(len(d))
-    fix = np.abs(np.diff(d))<THRESHOLD
-    lin_d = d[fix]
-    d_fix = np.interp(t, t[fix], lin_d, left=lin_d[0]-1, right=lin_d[-1]+1)
-    return d_fix.astype(np.int)
+    print('Find computerClock offsets')
+    offsets_indices, = np.where(np.diff(cc)<0)
+    print('Found clock jumps at indices %s, at relative position %s' % (str(offsets_indices), str(offsets_indices.astype(np.double)/len(cc)) ))
+    offsets = [] 
+    for j in offsets_indices:
+        offsets.append(cc[j] + 2e9 * (gpstime[j+1] - gpstime[j]) - cc[j+1])
+    return offsets
 
-def remove_reset(d, offsetsci=None):
-    """Gets longest time period between resets"""
-    # first check for 20bit jumps
-    jump20bit_indices, = np.where(np.logical_and(np.diff(d) < -2**20*.9, np.diff(d) > -2**20*1.1))
-    print('20bit jumps at:')
-    print(jump20bit_indices)
-    for j in jump20bit_indices:
-        d[j+1:] += 2**20
-    if not offsetsci is None:
-        d += 2**20 * np.round((offsetsci - d[0])/2**20)
-    print('remove dip')
-    start,=np.where(np.diff(d) < -500000)
-    stop,=np.where(np.diff(d) > 500000)
-    if len(start)>0:
-        d[start[1]-1:stop[1]+1] = -1
-    reset_indices, = np.where(np.diff(d) < -300000)
-    real_reset = []
-    for i in reset_indices:
-        if not (1.5e6<i<1.6e6): 
-        #if abs(d[i+2]-d[i]) >= abs(d[i+1]-d[i]) and not (1.5e6<i<1.6e6): 
-            #it is a single point, not a reset
-            real_reset.append(i)
-    reset_indices = np.array(real_reset)
+def apply_cc_offsets(cc, offsets):
+    jumps, = np.where(np.diff(cc)<0)
+    # apply offsets estimated with gpstime to computerclock of the revcounter
+    if len(jumps) < len(offsets):
+        print('Missing data in device')
+    for index, offset in zip(jumps, offsets[:len(jumps)):
+        cc[index+1:] += offset
+    return cc
 
-    print('reset jumps at:')
-    print(reset_indices)
-    sections_boundaries = np.concatenate([[0], reset_indices +1 ,[len(d)]])
-    sections_lengths = np.diff(sections_boundaries)
-    max_len = sections_lengths.argmax()
-    s = np.zeros(len(d), dtype=np.bool)
-    start = np.max([150000, sections_boundaries[max_len]])
-    stop = np.min([sections_boundaries[max_len+1], d.searchsorted(4865400)])
-    s[start+1:stop-1] = True
-    s[d==-1] = False
-    s[d==0] = False
-    single_sample_jump, = np.where(np.diff(d[:stop-1])<0)
-    assert np.all(np.diff(single_sample_jump)>2)
-    s[single_sample_jump + 1] = False
-    print('selecting section with no resets from index %d to index %d %.2f %% of the total length' % (start, stop, (stop-start)*100./len(d)))
-    return s
+def read_data(base_folder='/home/zonca/COFE/data/sync_data', day='all', freq=10):
+    gyro = fits.read(os.path.join(base_folder, 'servo', '%s.fits' % day), 'GYRO_HID')
+    revcounter = fits.read(os.path.join(base_folder, 'servo', '%s.fits' % day), REVCOUNTER_LABEL[freq])
+    data_rev = fits.read(os.path.join(base_folder, '%d' % freq, '%s.fits' % day), 0)['REV']
+    return gyro, revcounter, data_rev
 
-def index_of_single_sample_jumps(d):
-    jumps,=np.where(np.abs(np.diff(d))>.005 )
-    single_jumps = jumps[np.diff(jumps)==1] + 1
-    return single_jumps
+def create_science_computerclock(gyro, revcounter, data_rev):
+    servo_range = remove_reset(revcounter['VALUE'], offsetsci=data_rev[0])
 
-def make_monotonic(d):
-    jumps, = np.where(np.diff(d)<0)
-    print('Fixing jumps at indices %s, at relative position %s' % (str(jumps), str(jumps.astype(np.double)/len(d)) ))
-    for j in jumps:
-        d[j+1:] += d[j] - d[j+1]
+    # apply offsets to revcounter cc
+    revcounter['computerClock'] = apply_cc_offsets(revcounter['computerClock'], offsets)
+
+    # oversample revcounter cc and value to 140 Hz in order to interpolate over gaps
+    uniform_rev_cc = np.arange(revcounter['computerClock'][servo_range][0], revcounter['computerClock'][servo_range][-1], (1/140.)*2e9, dtype=np.double)
+    uniform_rev = np.interp( uniform_rev_cc, revcounter['computerClock'][servo_range].astype(np.double), revcounter['VALUE'][servo_range].astype(np.double))
+
+    # create science data computer clock
+    sci_cc = np.around(np.interp(data_rev, uniform_rev, uniform_rev_cc).astype(np.long)
+    return sci_cc, offsets
+
+def create_ut(gyro):
+    """Create UT array from gpstime"""
+    # check that gyro computerclock is already fixed
+    assert np.all(np.diff(gyro['computerClock']) >= 0)
+    # Fix gpstime to create the UT column
+    ut = np.mod((gyro['GPSTIME'] + 15.)/3600., 24.)
+    # remove single sample jumps
+    good_ut = np.ones(len(ut),dtype=np.bool)
+    good_ut[index_of_single_sample_jumps(ut)] = False
+
+    # unwrap ut at 24 hours
+    day_change_index, = np.where(np.diff(ut)<-23)
+    assert len(day_change_index) == 1
+    ut[day_change_index[0]+1:] += 24
+
+    # get just the good samples
+    utcc = gyro['computerClock'][good_ut]
+    ut = ut[good_ut]
+    return utcc, ut
+
+def create_utscience(sci_file, offsets, utcc, ut, freq=10)
+    """Create file with science data with fixed CC and UT
+    see create_utservo
+    """
+
+    data = fits.read(sci_file)
+
+    splitted_data['TIME'] = OrderedDict()
+    for ch_n in range(16):
+        ch_name = 'CHANNEL_%02d' % ch_n
+        splitted_data[ch_name] = OrderedDict()
+        for comp in 'TQU':
+            splitted_data[ch_name][comp] = data[ch_name + comp]
+
+def create_utservo(servo_file, offsets, utcc, ut)
+    """Create file with servo data with fixed CC and UT
+
+    Parameters
+    ----------
+    servo_file : str
+        filename of servo data
+    offsets : ndarray
+        CC offsets computed from gpstime, see find_clock_offsets_from_gpstime
+    utcc : ndarray
+        CC array related to UT
+    ut : ndarray
+        UT array
+
+    Returns
+    -------
+    writes utservo.fits file to disk
+    """
+
+    utservo = OrderedDict()
+    for device in DEVICES:
+        print('Processing ' + device)
+        utservo[device] = fits.read(servo_file, device)
+        utservo[device]['computerClock'] = apply_cc_offsets(utservo[device]['computerClock'], offsets)
+        utservo[device]['UT'] = np.interp( utservo[device]['computerClock'], utcc, ut)
+
+    filename = 'utservo.fits'
+    print('Writing ' + filename)
+    fits.write(filename, utservo)
+
+def process_level1():
+    gyro, revcounter, data_rev = read_data(base_folder='/home/zonca/COFE/data/sync_data', day='all', freq=10):
+    offsets = find_clock_offsets_from_gpstime(gyro['computerClock'], gyro['GPSTIME'])
+    utcc, ut = create_ut(gyro)
+    create_utservo(servo_file, offsets, utcc, ut)
+    create_utscience(sci_file, offsets, utcc, ut, freq=10)
 
 class ServoSciSync(object):
     """Synchronizes servo and science data in a single fits file per day"""
