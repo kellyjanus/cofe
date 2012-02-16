@@ -11,14 +11,9 @@ from . import utils
 from . import datparsing
 from .dtypes import *
 
-# This file provides functions to perform the demodulation of the
-#  telescopes' .dat files.
-# The important functions here are:
-#  demodulate(data): demodulates the given data (assumed to be in the
-#    format read from the telescopes' .dat files).
-#  demodulate_dat(filename): reads the data in the given .dat file and
-#    demodulates it into an array of data type demod_dtype.
-#
+"""This file provides functions to perform the demodulation of the
+telescopes' .dat files."""
+
 # Here is a lengthy explanation of what the demodulation process is and
 #  why we do it that way:
 # Okay. So, we have this thing called a half-wave plate, which is a metal

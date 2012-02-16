@@ -1,14 +1,6 @@
 """This file contains tools for parsing the data contained in the .dat files
- produced by the telescopes' data acquisition code.
-The most important things in this file are:
- dat_dtype: the numpy dtype of the .dat files.
- rev_dtype: the numpy dtype of the output data
- read_raw(filename): a numpy.memmap of dtype=dat_dtype into the filename
-We recognize when a new revolution starts by seeing that the encoder
- value is less than ENCODER_START_TRIGGER.
-A "valid" revolution is one with exactly SAMPLES_PER_REVOLUTION samples.
- Any other is damaged in some way, and recommended to be ignored."""
-
+produced by the telescopes' data acquisition code.
+"""
 import numpy as np
 import logging as l
 
