@@ -7,7 +7,8 @@ import logging as l
 from exceptions import Exception
 from glob import glob
 
-from . import utils, datparsing
+from . import utils
+from . import datparsing
 from .dtypes import *
 
 # This file provides functions to perform the demodulation of the
@@ -58,13 +59,6 @@ from .dtypes import *
 #  Return an array 49 elements wide:
 #    (revolution number + mean TQU of each channel) for each revolution.
 
-
-class InvalidFileException(Exception):
-    def __init__(self, value):
-        self.value = value
-    def __str__(self):
-        return repr(self.value)
-
 def demodulate(data):
     """Demodulates input revdata dataset created by datparsing.create_revdata
 
@@ -78,7 +72,7 @@ def demodulate(data):
     demod_data : ndarray
         demodulated data of dtype demod_dtype
     """
-    demod_data = np.zeros(len(self.data), dtype=demod_dtype)
+    demod_data = np.zeros(len(data), dtype=demod_dtype)
     demod_data['rev'] = data['rev']
     for ch in channels_labels:
         calibdata = data[ch]
