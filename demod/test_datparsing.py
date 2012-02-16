@@ -6,6 +6,8 @@ from .datparsing import *
 class TestDatParsing(unittest.TestCase):
     
     def setUp(self):
+        """Creates a fake dataset with 2 good revolutions, 1 bad revolution,
+        and some random samples at the beginning and the end"""
         self.raw_data = np.zeros(256 * 3 + 20, dtype=dat_dtype)
         start = 5
         self.raw_data['enc'][:start] = 100 # bad start to remove
@@ -24,8 +26,22 @@ class TestDatParsing(unittest.TestCase):
 
     def test_create_revdata(self):
         out = create_revdata(self.raw_data, volts=False)
+
+        # check number of revolutions found
         self.assertEqual(len(out), 2)
+        # check correct datatype
         self.assertEqual(out.dtype, rev_dtype_adu)
+        # check reconstruction of revolution counter
         self.assertEqual(out['rev'][0], self.revcheck)
+        # check reshaping
         np.testing.assert_array_equal(out['ch1'][0], np.arange(256))
         np.testing.assert_array_equal(out['ch1'][1], np.arange(256)+2)
+
+    def test_create_revdata(self):
+        out = create_revdata(self.raw_data, volts=True)
+
+        # check reshaping
+        np.testing.assert_array_almost_equal(out['ch1'][0], np.arange(256)* 20./2**16 - 10
+        )
+        np.testing.assert_array_almost_equal(out['ch1'][1], (np.arange(256)+2) * 20./2**16 - 10
+        )
