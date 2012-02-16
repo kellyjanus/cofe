@@ -6,7 +6,6 @@ config = dict(  NCHAN=16,
                 ENC_START_TRIGGER=15
              )
 
-
 # Names of the data channels:
 channels_labels = ['ch%d' % i for i in range(config['NCHAN'])]
 

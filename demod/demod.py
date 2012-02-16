@@ -64,6 +64,9 @@ def demodulate(data, freq, number_of_phases=8):
         input data of dtype rev_dtype
     freq : int
         10 or 15, required to get phases
+    number_of_phases : int, optional
+        number of phases to divide the revolution into
+        typically 8 to get Q and U
 
     Returns
     -------
@@ -75,8 +78,8 @@ def demodulate(data, freq, number_of_phases=8):
     for ch in channels_labels:
         calibdata = data[ch]
         channel_phase = phases.getint('%dGHz' % freq, ch)
-        q_commutator = square_wave(config['SEC_PER_REV'], period=8, phase=channel_phase)
-        u_commutator = square_wave(config['SEC_PER_REV'], period=8, phase=channel_phase, U=True)
+        q_commutator = square_wave(config['SEC_PER_REV'], number_of_phases, phase=channel_phase)
+        u_commutator = square_wave(config['SEC_PER_REV'], number_of_phases, phase=channel_phase, U=True)
         demod_data[ch]['T'] = np.mean(calibdata,axis=1)
         demod_data[ch]['Q'] = np.mean(calibdata*q_commutator,axis=1)
         demod_data[ch]['U'] = np.mean(calibdata*u_commutator,axis=1)

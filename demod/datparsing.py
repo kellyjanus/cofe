@@ -66,7 +66,7 @@ def create_revdata(raw_data, volts=True):
         data = np.zeros(len(d)/config['SEC_PER_REV'], dtype=out_dtype)
         d_rev = d[::config['SEC_PER_REV']]
         data['rev'] = d_rev['rev0'].astype(np.long) + \
-                      d_rev['rev1'].astype(np.long) * config['SEC_PER_REV'] *  + \
+                      d_rev['rev1'].astype(np.long) * config['SEC_PER_REV'] + \
                       d_rev['rev2'].astype(np.long) * config['SEC_PER_REV']**2
         for ch in channels_labels:
             chdata = d[ch].reshape((-1, config['SEC_PER_REV']))
