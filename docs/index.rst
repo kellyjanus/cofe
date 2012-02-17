@@ -12,6 +12,7 @@ Contents:
    :maxdepth: 2
 
    demod
+   sync
 
 Indices and tables
 ==================
