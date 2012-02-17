@@ -1,5 +1,4 @@
 import exceptions
-import pyfits
 import pycfitsio as fits
 import os
 import numpy as np
