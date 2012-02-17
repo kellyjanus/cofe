@@ -63,7 +63,7 @@ plt.xlabel('UT')
 plt.savefig('fixedaz.png')
 
 import pycfitsio as fits
-fits.write(folder + 'fixaz.fits', OrderedDict([
+fits.write(os.path.join(folder, 'fixaz.fits'), OrderedDict([
     ('10GHz', OrderedDict([('UT', ut_sci_10), ('AZ', fixed_az_10)])),
     ('15GHz', OrderedDict([('UT', ut_sci_15), ('AZ', fixed_az_15)]))
     ]))
