@@ -108,9 +108,15 @@ def create_science_computerclock(gyro, revcounter, data_rev, offsets):
     uniform_rev_cc = np.arange(revcounter['COMPUTERCLOCK'][servo_range][0], revcounter['COMPUTERCLOCK'][servo_range][-1], (1/140.)*2e9, dtype=np.double)
     uniform_rev = np.interp( uniform_rev_cc, revcounter['COMPUTERCLOCK'][servo_range].astype(np.double), revcounter['VALUE'][servo_range].astype(np.double))
 
+    flag = np.ceil(np.interp(uniform_rev_cc, revcounter['COMPUTERCLOCK'][1:], np.diff(revcounter['COMPUTERCLOCK'])>ROTATION))
+
+
     # create science data computer clock
     sci_cc = np.around(np.interp(data_rev, uniform_rev, uniform_rev_cc).astype(np.long))
-    return sci_cc
+
+    norevcountflag = np.ceil(np.interp(sci_cc, uniform_rev_cc, flag)).astype(np.uint8)
+
+    return sci_cc, norevcountflag
 
 def create_ut(gyro):
     """Create UT array from gpstime
@@ -165,7 +171,7 @@ def create_utscience(sci_file, gyro, revcounter, offsets, utcc, ut, freq):
         splitted_data[ch_name] = OrderedDict()
         for comp in 'TQU':
             splitted_data[ch_name][comp] = data[ch_name + comp]
-    splitted_data['TIME']['COMPUTERCLOCK'] = create_science_computerclock(gyro, revcounter, data['REV'], offsets)
+    splitted_data['TIME']['COMPUTERCLOCK'], splitted_data['TIME']['NOREVCOUNTFLAG']= create_science_computerclock(gyro, revcounter, data['REV'], offsets)
     splitted_data['TIME']['UT'] = np.interp(splitted_data['TIME']['COMPUTERCLOCK'], utcc, ut)
 
     filename = '%s_%dGHz_data.fits' % (os.path.basename(sci_file).split('.')[0], freq)
@@ -267,8 +273,3 @@ def process_level1(base_folder='/COFE', day='all'):
 
 if __name__ == '__main__':
     process_level1()
-
-# TODO flagging
-###gaps longer than ROTATION are flagged
-##flag = np.ceil(np.interp(self.splitted_data['TIME']['COMPUTERCLOCK'],cc[1:], np.diff(cc) > ROTATION)).astype(np.uint8)
-##self.synched_data[device]['FLAG'] = flag

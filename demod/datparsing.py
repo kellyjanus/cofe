@@ -4,8 +4,8 @@ produced by the telescopes' data acquisition code.
 import numpy as np
 import logging as l
 
-from . import utils
-from .dtypes import *
+import utils
+from dtypes import *
 
 def open_raw(filename):
     """Reads a .dat file into a memmap
@@ -44,13 +44,15 @@ def create_revdata(raw_data, volts=True):
 
     # remove revolutions with bad number of samples 
     start_of_revs, = np.where(d['enc'] < config['ENC_START_TRIGGER'])
+    # add the end of array to compute the length of the last revolution
+    start_of_revs = np.append(start_of_revs, len(d['enc']))
     samples_per_rev = np.diff(start_of_revs)
     invalid_revs, = np.where(samples_per_rev != config['SEC_PER_REV'])
 
     if len(invalid_revs) > 0:
         l.warning('Removing invalid revolutions (index from beginning of file): %s' % invalid_revs)
     else:
-        l.warning('No invalid revolutions')
+        l.info('No invalid revolutions')
 
     # remove the samples of the bad revolutions from the array
     for i in invalid_revs[::-1]:

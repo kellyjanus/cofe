@@ -8,9 +8,9 @@ from exceptions import Exception
 from optparse import OptionParser
 from glob import glob
 
-from . import utils
-from . import datparsing
-from .dtypes import *
+import utils
+import datparsing
+from dtypes import *
 
 """This file provides functions to perform the demodulation of the
 telescopes' .dat files."""

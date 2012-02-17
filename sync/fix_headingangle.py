@@ -57,6 +57,12 @@ ut_sci_15 = pyfits.getdata(os.path.join(folder, 'all_15GHz_data.fits'), 'TIME')[
 fixed_az_10 = np.mod(np.interp(ut_sci_10, ut, unwrapped) + np.pi, 2*np.pi) - np.pi
 fixed_az_15 = np.mod(np.interp(ut_sci_15, ut, unwrapped) + np.pi, 2*np.pi) - np.pi
 
+# TODO flagging
+###gaps longer than ROTATION are flagged
+flag_10 = np.ceil(np.interp(ut_sci_10, ut[1:], np.diff(ut) > 80/3600.)).astype(np.uint8)
+flag_15 = np.ceil(np.interp(ut_sci_15, ut[1:], np.diff(ut) > 80/3600.)).astype(np.uint8)
+##self.synched_data[device]['FLAG'] = flag
+
 plt.figure()
 plt.plot(ut_sci_10, fixed_az_10, 'r.', label='fixed')
 plt.xlabel('UT')
@@ -64,6 +70,6 @@ plt.savefig('fixedaz.png')
 
 import pycfitsio as fits
 fits.write(os.path.join(folder, 'fixaz.fits'), OrderedDict([
-    ('10GHz', OrderedDict([('UT', ut_sci_10), ('AZ', fixed_az_10)])),
-    ('15GHz', OrderedDict([('UT', ut_sci_15), ('AZ', fixed_az_15)]))
+    ('10GHz', OrderedDict([('UT', ut_sci_10), ('AZ', fixed_az_10), ('FLAG', flag_10)])),
+    ('15GHz', OrderedDict([('UT', ut_sci_15), ('AZ', fixed_az_15), ('FLAG', flag_15)]))
     ]))
