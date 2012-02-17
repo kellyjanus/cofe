@@ -2,55 +2,76 @@ import matplotlib.pyplot as plt
 import sys
 sys.path.append('../code')
 
-import synclib
-from synclib import *
+from lib import *
 
-freq = 10
-self = synclib.ServoSciSync(base_folder ='/COFE', day = 'all', freq = freq, version='debug')
-self.load_data()
-plt.figure()
-plt.title('%d GHz REV' % freq)
-plt.plot(self.data['REV'],'.',label='SCI REV before fix')
-plt.plot(self.servo[REVCOUNTER_LABEL[self.freq]].data.field(2) ,'.',label='SERVO REV before fix')
-self.fix_counters()
-plt.plot(self.counters['sci'],'.',label='SCI REV after fix')
-plt.plot(self.counters['servo'],'.',label='SERVO REV after fix')
-plt.legend(loc=0); plt.grid(); plt.xlabel('Sample index')
+base_folder ='/COFE'
+day = 'all'
+version='debug'
 
-plt.figure()
-plt.title('Computer clocks before making monotonic')
-for device in self.devices:
-    plt.plot(self.servo[device].data.field('computerClock'), label = device)
+gyro = fits.read(os.path.join(base_folder, 'servo', '%s.fits' % day), 'GYRO_HID')
 
-self.find_clock_offsets_from_gpstime()
-self.sync_clock()
-plt.plot(self.splitted_data['TIME']['computerClock'], label = 'SCI')
-plt.legend(loc=0); plt.grid()
+plt.figure(); plt.title('Gyro computer clock')
+plt.plot(gyro['COMPUTERCLOCK'], label='before offsets')
 
-self.sync_devices()
-plt.figure()
-plt.plot(self.synched_data['GYRO_HID']['GPSTIME'])
-plt.grid()
+offsets = find_clock_offsets_from_gpstime(gyro['COMPUTERCLOCK'], gyro['GPSTIME'])
 
-plt.figure()
-plt.plot(self.splitted_data['TIME']['computerClock'], label = 'SCI')
-plt.title('Computer clocks after making monotonic')
-for device in self.devices:
-    plt.plot(self.servo[device].data.field('computerClock'), label = device)
-plt.legend(loc=0); plt.grid()
+plt.plot(gyro['COMPUTERCLOCK'], label='after offsets')
+plt.legend(loc=0); plt.xlabel('Sample index')
 
-plt.figure()
-plt.title('%d GHz REV' % freq)
-plt.plot(self.splitted_data['TIME']['computerClock'], self.counters['sci'],'r.',label='SCI REV')
-#plt.plot(self.synched_data['TIME']['computerClock'], self.synched_data['TIME']['REVCHECK'],'.', label='SERVO REV')
-plt.legend(); plt.grid(); plt.xlabel('computerClock')
+utcc, ut = create_ut(gyro)
 
-plt.figure()
-plt.title('%d GHz MAG' % freq)
-plt.plot(cctotime(self.splitted_data['TIME']['computerClock']), np.degrees(np.arctan2(self.splitted_data['CHANNEL_15']['T'], self.splitted_data['CHANNEL_14']['T'])),label='SCI')
-plt.plot(cctotime(self.synched_data['TIME']['computerClock']), np.degrees(np.arctan2(self.synched_data['ANALOGCHANNELS']['CHANNEL_31'], self.synched_data['ANALOGCHANNELS']['CHANNEL_30'])),label='ANALOGCH')
-plt.legend(); plt.grid(); plt.xlabel('hours')
+plt.figure(); plt.title('UT')
+plt.plot(ut)
+plt.legend(loc=0); plt.xlabel('Sample index')
 
-#self.write()
-##self.run()
-plt.show()
+plt.figure(); plt.title('UT vs CC')
+plt.plot(utcc, ut)
+plt.legend(loc=0); plt.xlabel('computerClock')
+
+servo_file = os.path.join(base_folder,'servo','%s.fits' % day)
+create_utservo(servo_file, offsets, utcc, ut)
+
+plt.figure(); plt.title('UT of devices')
+for device in DEVICES:
+    plt.plot(fits.read('utservo.fits', device)['UT'], label=device)
+
+plt.legend(loc=0); plt.xlabel('Sample index')
+
+for freq in [10, 15]:
+
+    revcounter = fits.read(os.path.join(base_folder, 'servo', '%s.fits' % day), REVCOUNTER_LABEL[freq])
+    sci_file = os.path.join(base_folder,str(freq),'%s.fits'%day)
+    data = fits.read(sci_file)
+
+    plt.figure()
+    plt.title('%d GHz REV' % freq)
+    plt.plot(data['REV'],'.',label='SCI REV before fix')
+    plt.plot(revcounter['VALUE'] ,'.',label='SERVO REV before fix')
+
+    servo_range = remove_reset(revcounter['VALUE'], offsetsci=data['REV'][0])
+
+    # apply offsets to revcounter cc
+    revcounter['COMPUTERCLOCK'] = apply_cc_offsets(revcounter['COMPUTERCLOCK'], offsets)
+
+    # oversample revcounter cc and value to 140 Hz in order to interpolate over gaps
+    uniform_rev_cc = np.arange(revcounter['COMPUTERCLOCK'][servo_range][0], revcounter['COMPUTERCLOCK'][servo_range][-1], (1/140.)*2e9, dtype=np.double)
+
+    plt.plot(revcounter['VALUE'][servo_range] ,'.',label='SERVO REV after fix')
+
+    uniform_rev = np.interp( uniform_rev_cc, revcounter['COMPUTERCLOCK'][servo_range].astype(np.double), revcounter['VALUE'][servo_range].astype(np.double))
+    plt.plot(uniform_rev ,'.',label='SERVO OVERSAMPLED')
+    plt.legend(loc=0); plt.xlabel('Sample index')
+
+    sci_cc = create_utscience(sci_file, gyro, revcounter, offsets, utcc, ut, freq)
+    plt.figure()
+    plt.title('%d GHz sci CC' % freq)
+    plt.plot(sci_cc)
+    plt.legend(loc=0); plt.xlabel('Sample index')
+
+    create_sync_servo(servo_file, offsets, utcc, ut, sci_cc, freq)
+
+    #plt.figure()
+    #plt.title('%d GHz MAG' % freq)
+    #plt.plot(cctotime(sci_cc), np.degrees(np.arctan2(splitted_data['CHANNEL_15']['T'], splitted_data['CHANNEL_14']['T'])),label='SCI')
+    #plt.plot(cctotime(synched_data['TIME']['COMPUTERCLOCK']), np.degrees(np.arctan2(synched_data['ANALOGCHANNELS']['CHANNEL_31'], synched_data['ANALOGCHANNELS']['CHANNEL_30'])),label='ANALOGCH')
+    #plt.legend(); plt.xlabel('hours')

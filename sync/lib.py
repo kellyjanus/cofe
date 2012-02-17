@@ -171,8 +171,8 @@ def create_sync_servo(servo_file, offsets, utcc, ut, sci_cc, freq):
     """
 
     print("Create synchronized servo data to %dGHz" % freq)
-    print('Writing ' + filename)
     filename = '%s_%dGHz_servo.fits' % (os.path.basename(servo_file).split('.')[0], freq)
+    print('Writing ' + filename)
     with fits.create(filename) as f:
         ext = OrderedDict()
         ext['COMPUTERCLOCK'] = sci_cc
@@ -208,7 +208,7 @@ def process_level1(base_folder='/COFE', day='all'):
     create_utservo(servo_file, offsets, utcc, ut)
     for freq in [10, 15]:
         revcounter = fits.read(os.path.join(base_folder, 'servo', '%s.fits' % day), REVCOUNTER_LABEL[freq])
-        sci_cc = create_utscience(os.path.join(base_folder,str(freq),'%s.fits'%day), gyro, revcounter, offsets, utcc, ut, freq=10)
+        sci_cc = create_utscience(os.path.join(base_folder,str(freq),'%s.fits'%day), gyro, revcounter, offsets, utcc, ut, freq)
         create_sync_servo(servo_file, offsets, utcc, ut, sci_cc, freq)
 
 if __name__ == '__main__':

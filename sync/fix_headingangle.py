@@ -2,11 +2,11 @@ import numpy as np
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import pyfits
+import os
 
 #load utservo
-version = '0.6'
-folder = '/COFE/Level1/%s/' % version
-raw_file = pyfits.open(folder + 'utservo_all_v%s.fits' % version)
+folder = os.getcwd()
+raw_file = pyfits.open(os.path.join(folder,'utservo.fits'))
 ut = raw_file['GYRO_HID'].data['UT']
 az = raw_file['GYRO_HID'].data['HYBRIDHEADINGANGLE']
 
@@ -50,8 +50,8 @@ h_jumps_scaled[h_jumps] *= np.round(np.diff(ut)[h_jumps]/typical_revlength)
 unwrapped[1:] += np.cumsum(h_jumps_scaled) * np.pi * 2 
 
 #read ut science
-ut_sci_10 = pyfits.getdata(folder + 'all_10GHz_v0.6_data.fits', 'TIME')['UT']
-ut_sci_15 = pyfits.getdata(folder + 'all_15GHz_v0.6_data.fits', 'TIME')['UT']
+ut_sci_10 = pyfits.getdata(os.path.join(folder, 'all_10GHz_data.fits'), 'TIME')['UT']
+ut_sci_15 = pyfits.getdata(os.path.join(folder, 'all_15GHz_data.fits'), 'TIME')['UT']
 
 #interpolate and reset to -pi pi
 fixed_az_10 = np.mod(np.interp(ut_sci_10, ut, unwrapped) + np.pi, 2*np.pi) - np.pi
