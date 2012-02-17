@@ -18,6 +18,16 @@ DEVICES = ['ANALOGCHANNELS', 'MAGNETOMETER', 'ASHTECH', 'GYRO_HID']
 
 def find_clock_offsets_from_gpstime(cc, gpstime):
     """Computes computerClock offsets after restarts using gpstime
+
+    all negative jumps in computerClock mean a restart.
+    if the restart is between sample j and j+1, we compute
+    the needed offset as:
+    cc[j] - cc[j+1] + 2e9 * (gpstime[j+1] - gpstime[j])
+    where:
+    cc[j+1] - cc[j] is the current jump in computerClock
+    2e9 * (gpstime[j+1] - gpstime[j]) is the correct jump computed from gpstime
+    so we actually remove the current jump and add back
+    the correct jump converted from gpstime
     
     Parameters
     ----------
@@ -26,7 +36,8 @@ def find_clock_offsets_from_gpstime(cc, gpstime):
     gpstime : ndarray
         gpstime array
 
-    Returns:
+    Returns
+    -------
     offsets : ndarray
         offsets to apply to computerclock to compensate for restarts
     """
@@ -41,6 +52,23 @@ def find_clock_offsets_from_gpstime(cc, gpstime):
     return offsets
 
 def apply_cc_offsets(cc, offsets):
+    """Blindly apply offsets computed from gpstime to cc
+
+    offsets are blindly summed to the negative jumps
+    in the cc array.
+
+    Parameters
+    ----------
+    cc : ndarray
+        computerClock to be corrected for restarts
+    offsets : ndarray
+        precomputed offsets
+
+    Returns
+    -------
+    cc : ndarray
+        corrected computerClock
+    """
     jumps, = np.where(np.diff(cc)<0)
     # apply offsets estimated with gpstime to computerclock of the revcounter
     if len(jumps) < len(offsets):
@@ -50,6 +78,29 @@ def apply_cc_offsets(cc, offsets):
     return cc
 
 def create_science_computerclock(gyro, revcounter, data_rev, offsets):
+    """Syncronizes science and gyro using the revcounter
+
+    the revcounter has several gaps, so we first interpolate it uniformly
+    at 140 Hz and then we interpolate the uniform revcounter computerclock
+    to the science sampling rate using the revcounters
+
+    Parameters
+    ----------
+    gyro : OrderedDict
+        gyro data
+    revcounter : OrderedDict
+        revcounter data
+    data_rev : ndarray
+        revcounter of the scientific channel
+    offsets : ndarray
+        cc offsets from gpstime
+
+    Returns
+    -------
+    sci_cc : ndarray
+        syncronized scientific computerclock
+    """
+    # servo revcounter is cleaned up from restarts and jumps
     servo_range = remove_reset(revcounter['VALUE'], offsetsci=data_rev[0])
 
     # apply offsets to revcounter cc
@@ -65,6 +116,11 @@ def create_science_computerclock(gyro, revcounter, data_rev, offsets):
 
 def create_ut(gyro):
     """Create UT array from gpstime
+
+    UT is defined as UT hour of the first day,
+    e.g. 10 is 10am of the first day
+    and monotonically increasing after 24,
+    so 27.5 is 3:30am of the second day.
     
     Parameters
     ----------
