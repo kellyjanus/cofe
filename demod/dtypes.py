@@ -32,4 +32,3 @@ ch_dtype = np.dtype( [('T',np.float),('Q',np.float),('U',np.float)] )
 
 # Structure of the output demodulated data
 demod_dtype = np.dtype( [('rev',np.float)] + [(ch,ch_dtype) for ch in channels_labels] )
-

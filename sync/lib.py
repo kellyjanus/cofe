@@ -167,7 +167,7 @@ def create_utscience(sci_file, gyro, revcounter, offsets, utcc, ut, freq):
     splitted_data = OrderedDict()
     splitted_data['TIME'] = OrderedDict()
     for ch_n in range(16):
-        ch_name = 'CHANNEL_%02d' % ch_n
+        ch_name = 'CH%d_' % ch_n
         splitted_data[ch_name] = OrderedDict()
         for comp in 'TQU':
             splitted_data[ch_name][comp] = data[ch_name + comp]

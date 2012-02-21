@@ -112,7 +112,7 @@ def write_fits(demod_data, outfilename):
     outfilename : str
         output filename
     """
-    print('Writing %s to disk' % outfilename)
+    l.info('Writing %s to disk' % outfilename)
     tqu = ['T','Q','U']
     cols = []
     cols.append(pyfits.Column(name='rev', format='E', array=demod_data['rev']))
@@ -122,7 +122,7 @@ def write_fits(demod_data, outfilename):
     hdu = pyfits.new_table(cols)
     hdu.header.update('EXTNAME',  'DATA')
     hdu.writeto(outfilename, clobber=True)
-    print('%s written to disk' % outfilename)
+    l.info('%s written to disk' % outfilename)
 
 if __name__ == '__main__':
     usage = '''usage: %prog [options] file_or_folder
