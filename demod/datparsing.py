@@ -24,6 +24,16 @@ def open_raw(filename):
     raw_data = np.memmap( filename, dtype=dat_dtype, mode='r')
     return raw_data
 
+def remove_noise_triggers(d):
+    """Find noise triggered data
+
+    returns cut down memmap whie still needs to be0
+    tested for incomplete revolutions etc.
+    """
+    encoder=d['enc']/16
+    g=np.where(np.diff(encoder) != 0)
+    return d[g]
+
 def create_revdata(raw_data, volts=True):
     """Deletes invalid revolutions and shapes the array on revolutions
     
@@ -41,6 +51,8 @@ def create_revdata(raw_data, volts=True):
     # remove partial revolutions at the beginning and end of dataset
     start_of_revs, = np.where(raw_data['enc'] < config['ENC_START_TRIGGER'])
     d = np.array(raw_data[start_of_revs[0]:start_of_revs[-1]].copy())
+
+    d = remove_noise_triggers(d)
 
     # remove revolutions with bad number of samples 
     start_of_revs, = np.where(d['enc'] < config['ENC_START_TRIGGER'])
