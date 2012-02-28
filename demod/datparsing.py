@@ -31,8 +31,12 @@ def remove_noise_triggers(d):
     tested for incomplete revolutions etc.
     """
     encoder=d['enc']/16
-    g=np.where(np.diff(encoder) != 0)
-    return d[g]
+    duplicates = np.diff(encoder) == 0
+    # otherwise the last sample is always discarted because
+    # there is not diff of it
+    good = np.ones(len(encoder), dtype=np.bool)
+    good[duplicates] = False
+    return d[good]
 
 def create_revdata(raw_data, volts=True):
     """Deletes invalid revolutions and shapes the array on revolutions
