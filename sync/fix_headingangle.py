@@ -21,10 +21,10 @@ ut = ut[valid]
 #ut = ut[sec]
 #ut_sci = ut_sci[(ut_sci > 32.5) & (ut_sci < 33)]
 
-plt.figure()
-plt.plot(ut, az, '.', label='raw')
-plt.xlabel('UT')
-plt.savefig('rawaz.png')
+#plt.figure()
+#plt.plot(ut, az, '.', label='raw')
+#plt.xlabel('UT')
+#plt.savefig('rawaz.png')
 
 #unwrap the heading angle 
 wraps = np.diff(az) < - .95 * 2 * np.pi #5% tolerance
@@ -63,10 +63,10 @@ flag_10 = np.ceil(np.interp(ut_sci_10, ut[1:], np.diff(ut) > 80/3600.)).astype(n
 flag_15 = np.ceil(np.interp(ut_sci_15, ut[1:], np.diff(ut) > 80/3600.)).astype(np.uint8)
 ##self.synched_data[device]['FLAG'] = flag
 
-plt.figure()
-plt.plot(ut_sci_10, fixed_az_10, 'r.', label='fixed')
-plt.xlabel('UT')
-plt.savefig('fixedaz.png')
+#plt.figure()
+#plt.plot(ut_sci_10, fixed_az_10, 'r.', label='fixed')
+#plt.xlabel('UT')
+#plt.savefig('fixedaz.png')
 
 import pycfitsio as fits
 fits.write(os.path.join(folder, 'fixaz.fits'), OrderedDict([
