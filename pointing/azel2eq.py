@@ -12,15 +12,13 @@ def freq2wavelength(freq):
         return constants.c / freq / 1e3
 
 freq = 10
-pointing_file = fits.open('data/v5_all_%dghz_pointing.fits' % freq)
+pointing_file = fits.open('data/all_%dghz_pointing.fits' % freq)
 
 channels = list(set([int(c.translate(None, 'AZEL')) for c in pointing_file[0].dtype.names]))
-data_file = fits.open('data/all_%dGHz_v0.5_data.fits' % freq)
-servo_file = fits.open('data/utservo_all_v0.5.fits')
+data_file = fits.open('data/all_%dGHz_data_cal.fits' % freq)
+servo_file = fits.open('data/utservo.fits')
 
 # pointing channel is the column in the pointing file
-
-
 
 MISSIONSTART = 16.8 #from altitude
 MISSIONEND = 36.84 #from issue with latitude
@@ -29,7 +27,6 @@ MISSIONEND = 36.84 #from issue with latitude
 #MISSIONSTART = 17 + 9/60.
 #MISSIONEND = 17 + 13/60.
 START_DATE = datetime.datetime(2011, 9, 17)
-
 
 #azimuth/elevation
 ut = data_file['TIME'].read_column('UT') 
@@ -58,7 +55,7 @@ def conv(i, azimuth, elevation, utc):
     observer.date = utc
     return observer.radec_of(azimuth, elevation)
 
-with fits.create('/COFE/Level1/0.5/pointing_%d.fits' % (freq)) as f:
+with fits.create('/COFE/Level1/1.1/eq_pointing_%d.fits' % (freq)) as f:
     f.write_HDU("TIME", OrderedDict({'UT': ut}))
     for pnt_ch in channels:
         print("Channel %d" % pnt_ch)
