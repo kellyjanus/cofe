@@ -6,7 +6,9 @@ import os
 
 #load utservo
 folder = os.getcwd()
-raw_file = pyfits.open(os.path.join(folder,'utservo.fits'))
+utservo_filename = os.path.join(folder,'utservo.fits')
+print utservo_filename
+raw_file = pyfits.open(utservo_filename)
 ut = raw_file['GYRO_HID'].data['UT']
 az = raw_file['GYRO_HID'].data['HYBRIDHEADINGANGLE']
 

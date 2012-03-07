@@ -9,7 +9,7 @@ from utils import *
 REVCOUNTER_LABEL = {10:'REVCOUNTER_15GHZ', 15:'REVCOUNTER_10GHZ'}
 
 WRAPPING_FIELDS_PI = ['HYBRIDHEADINGANGLE', 'HYBRIDYAWANGLE']
-ROTATION = 80*2.e9
+ROTATION = 80/2e-9
 WRAPPING_FIELDS_360 = ['HEADING']
 
 DEVICES = ['ANALOGCHANNELS', 'MAGNETOMETER', 'ASHTECH', 'GYRO_HID']
@@ -20,11 +20,10 @@ def find_clock_offsets_from_gpstime(cc, gpstime):
     all negative jumps in computerClock mean a restart.
     if the restart is between sample j and j+1, we compute
     the needed offset as:
-    cc[j] - cc[j+1] + 2e9 * (gpstime[j+1] - gpstime[j])
+    cc[j] - cc[j+1] + (gpstime[j+1] - gpstime[j])/2e-9
     where:
     cc[j+1] - cc[j] is the current jump in computerClock
-    2e9 * (gpstime[j+1] - gpstime[j]) is the correct jump computed from gpstime
-    so we actually remove the current jump and add back
+    (gpstime[j+1] - gpstime[j]) /2e-9 is the correct jump computed from gpstime    so we actually remove the current jump and add back
     the correct jump converted from gpstime
     
     Parameters
@@ -45,7 +44,7 @@ def find_clock_offsets_from_gpstime(cc, gpstime):
     print('Found clock jumps at indices %s, at relative position %s' % (str(offsets_indices), str(offsets_indices.astype(np.double)/len(cc)) ))
     offsets = [] 
     for j in offsets_indices:
-        offsets.append(cc[j] + 2e9 * (gpstime[j+1] - gpstime[j]) - cc[j+1])
+        offsets.append(cc[j] + (gpstime[j+1] - gpstime[j])/2e-9 - cc[j+1])
     cc = apply_cc_offsets(cc, offsets)
     return offsets
 
@@ -105,21 +104,40 @@ def create_science_computerclock(gyro, revcounter, data_rev, offsets):
     revcounter['COMPUTERCLOCK'] = apply_cc_offsets(revcounter['COMPUTERCLOCK'], offsets)
 
     # oversample revcounter cc and value to 140 Hz in order to interpolate over gaps
-    uniform_rev_cc = np.arange(revcounter['COMPUTERCLOCK'][servo_range][0], revcounter['COMPUTERCLOCK'][servo_range][-1], (1/140.)*2e9, dtype=np.double)
+    uniform_rev_cc = np.arange(revcounter['COMPUTERCLOCK'][servo_range][0], revcounter['COMPUTERCLOCK'][servo_range][-1], (1/1000.)/2.e-9, dtype=np.double)
     uniform_rev = np.interp( uniform_rev_cc, revcounter['COMPUTERCLOCK'][servo_range].astype(np.double), revcounter['VALUE'][servo_range].astype(np.double))
 
     flag = np.ceil(np.interp(uniform_rev_cc, revcounter['COMPUTERCLOCK'][1:], np.diff(revcounter['COMPUTERCLOCK'])>ROTATION))
 
 
     # create science data computer clock
-    sci_cc = np.around(np.interp(data_rev, uniform_rev, uniform_rev_cc).astype(np.long))
+    sci_cc = np.around(np.interp(data_rev.astype(np.double), uniform_rev.astype(np.double), uniform_rev_cc.astype(np.double)).astype(np.long))
 
     norevcountflag = np.ceil(np.interp(sci_cc, uniform_rev_cc, flag)).astype(np.uint8)
 
     return sci_cc, norevcountflag
 
-def create_ut(gyro):
-    """Create UT array from gpstime
+def create_ut_from_gpstime(gpstime):
+    # Fix gpstime to create the UT column
+    fixed = np.mod((gpstime + 15.)/3600., 24.)
+    # remove single sample jumps
+    good = np.ones(len(fixed),dtype=np.bool)
+    good[index_of_single_sample_jumps(fixed)] = False
+
+    # get just the good samples
+    gpstime_index = np.arange(len(gpstime))[good]
+
+    # interpolate back to original length
+    fixed = np.interp(np.arange(len(gpstime)), gpstime_index, fixed[good])
+
+    # unwrap ut at 24 hours
+    day_change_index, = np.where(np.diff(fixed)<-23)
+    assert len(day_change_index) == 1
+    fixed[day_change_index[0]+1:] += 24
+    return fixed
+
+def create_ut_from_cc(gyro):
+    """Create UT array from computerclock
 
     UT is defined as UT hour of the first day,
     e.g. 10 is 10am of the first day
@@ -140,20 +158,10 @@ def create_ut(gyro):
     """
     # check that gyro computerclock is already fixed
     assert np.all(np.diff(gyro['COMPUTERCLOCK']) >= 0)
-    # Fix gpstime to create the UT column
     ut = np.mod((gyro['GPSTIME'] + 15.)/3600., 24.)
-    # remove single sample jumps
-    good_ut = np.ones(len(ut),dtype=np.bool)
-    good_ut[index_of_single_sample_jumps(ut)] = False
 
-    # get just the good samples
-    utcc = gyro['COMPUTERCLOCK'][good_ut]
-    ut = ut[good_ut]
-
-    # unwrap ut at 24 hours
-    day_change_index, = np.where(np.diff(ut)<-23)
-    assert len(day_change_index) == 1
-    ut[day_change_index[0]+1:] += 24
+    utcc = gyro['COMPUTERCLOCK']
+    ut = ut[0] + (gyro['COMPUTERCLOCK'] - gyro['COMPUTERCLOCK'][0]) * 2e-9 / 3600.
 
     return utcc, ut
 
@@ -178,7 +186,7 @@ def create_utscience(sci_file, gyro, revcounter, offsets, utcc, ut, freq):
     print('Writing ' + filename)
     fits.write(filename, splitted_data)
 
-    return splitted_data['TIME']['COMPUTERCLOCK']
+    return splitted_data
 
 def create_utservo(servo_file, offsets, utcc, ut):
     """Create file with servo data with fixed CC and UT
@@ -210,6 +218,7 @@ def create_utservo(servo_file, offsets, utcc, ut):
     filename = 'utservo.fits'
     print('Writing ' + filename)
     fits.write(filename, utservo)
+    return utservo
 
 def create_sync_servo(servo_file, offsets, utcc, ut, sci_cc, freq):
     """Create synchronized servo data
@@ -249,7 +258,10 @@ def create_sync_servo(servo_file, offsets, utcc, ut, sci_cc, freq):
                     ext[colname] = np.interp(sci_cc, cc, colarray)
             f.write_HDU(device, ext)
     
-def process_level1(base_folder='/COFE', day='all'):
+def fix_gyro_cc(gyro, ut):
+    return gyro['COMPUTERCLOCK'][0] + (ut-ut[0])*3600/2e-9
+    
+def process_level1(base_folder='/COFE', day='all', use_cc=True):
     """Full processing to produce Level1 data
     
     Parameters
@@ -263,7 +275,12 @@ def process_level1(base_folder='/COFE', day='all'):
     """
     gyro = fits.read(os.path.join(base_folder, 'servo', '%s.fits' % day), 'GYRO_HID')
     offsets = find_clock_offsets_from_gpstime(gyro['COMPUTERCLOCK'], gyro['GPSTIME'])
-    utcc, ut = create_ut(gyro)
+    if use_cc:
+        utcc, ut = create_ut_from_cc(gyro)
+    else:
+        ut = create_ut_from_gpstime(gyro['GPSTIME'])
+        gyro['COMPUTERCLOCK'] = fix_gyro_cc(gyro, ut)
+        utcc = gyro['COMPUTERCLOCK']
     servo_file = os.path.join(base_folder,'servo','%s.fits' % day)
     create_utservo(servo_file, offsets, utcc, ut)
     for freq in [10, 15]:
@@ -273,3 +290,21 @@ def process_level1(base_folder='/COFE', day='all'):
 
 if __name__ == '__main__':
     process_level1()
+    #base_folder='/COFE'; day='all'
+    #gyro = fits.read(os.path.join(base_folder, 'servo', '%s.fits' % day), 'GYRO_HID')
+    #offsets = find_clock_offsets_from_gpstime(gyro['COMPUTERCLOCK'], gyro['GPSTIME'])
+    #use_cc = True
+
+    #servo_file = os.path.join(base_folder,'servo','%s.fits' % day)
+    #utservo = create_utservo(servo_file, offsets, utcc, ut)
+    #freq = 10
+    #revcounter = fits.read(os.path.join(base_folder, 'servo', '%s.fits' % day), REVCOUNTER_LABEL[freq])
+    #sci = create_utscience(os.path.join(base_folder,str(freq),'%s.fits'%day), gyro, revcounter, offsets, utcc, ut, freq)
+    ##create_sync_servo(servo_file, offsets, utcc, ut, sci_cc, freq)
+    #ra=slice(866653+1500,869045-700+1)
+    #figure()
+    #plot(sci['TIME']['UT'][ra],sci['CH1_']['T'][ra])
+    #from smooth import smooth
+    #figure()
+    #plot(np.interp( sci['TIME']['UT'][ra], utservo['GYRO_HID']['UT'], utservo['GYRO_HID']['HYBRIDHEADINGANGLE'] ), sci['CH1_']['T'][ra])
+    #plot(smooth(np.interp( sci['TIME']['UT'][ra], utservo['GYRO_HID']['UT'], utservo['GYRO_HID']['HYBRIDHEADINGANGLE'] ),30), sci['CH1_']['T'][ra])

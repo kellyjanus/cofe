@@ -11,7 +11,7 @@ def freq2wavelength(freq):
         """Freq [GHz] to wavelength [microns]"""
         return constants.c / freq / 1e3
 
-freq = 10
+freq = 15
 pointing_file = fits.open('data/all_%dghz_pointing.fits' % freq)
 
 channels = list(set([int(c.translate(None, 'AZEL')) for c in pointing_file[0].dtype.names]))
