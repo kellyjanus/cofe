@@ -242,21 +242,22 @@ def create_sync_servo(servo_file, offsets, utcc, ut, sci_cc, freq):
     print("Create synchronized servo data to %dGHz" % freq)
     filename = '%s_%dGHz_servo.fits' % (os.path.basename(servo_file).split('.')[0], freq)
     print('Writing ' + filename)
-    with fits.create(filename) as f:
+    f = fits.create(filename)
+    ext = OrderedDict()
+    ext['COMPUTERCLOCK'] = sci_cc
+    ext['UT'] = np.interp(sci_cc, utcc, ut)
+    f.write_HDU('TIME', ext)
+    for device in DEVICES:
+        print('Processing ' + device)
+        raw_data = fits.read(servo_file, device)
         ext = OrderedDict()
-        ext['COMPUTERCLOCK'] = sci_cc
-        ext['UT'] = np.interp(sci_cc, utcc, ut)
-        f.write_HDU('TIME', ext)
-        for device in DEVICES:
-            print('Processing ' + device)
-            raw_data = fits.read(servo_file, device)
-            ext = OrderedDict()
-            cc = apply_cc_offsets(raw_data['COMPUTERCLOCK'], offsets)
-            for colname, colarray in raw_data.iteritems():
-                if colname != 'COMPUTERCLOCK':
-                    print('Column ' + colname)
-                    ext[colname] = np.interp(sci_cc, cc, colarray)
-            f.write_HDU(device, ext)
+        cc = apply_cc_offsets(raw_data['COMPUTERCLOCK'], offsets)
+        for colname, colarray in raw_data.iteritems():
+            if colname != 'COMPUTERCLOCK':
+                print('Column ' + colname)
+                ext[colname] = np.interp(sci_cc, cc, colarray)
+        f.write_HDU(device, ext)
+    f.close()
     
 def fix_gyro_cc(gyro, ut):
     return gyro['COMPUTERCLOCK'][0] + (ut-ut[0])*3600/2e-9
@@ -285,8 +286,8 @@ def process_level1(base_folder='/COFE', day='all', use_cc=True):
     create_utservo(servo_file, offsets, utcc, ut)
     for freq in [10, 15]:
         revcounter = fits.read(os.path.join(base_folder, 'servo', '%s.fits' % day), REVCOUNTER_LABEL[freq])
-        sci_cc = create_utscience(os.path.join(base_folder,str(freq),'%s.fits'%day), gyro, revcounter, offsets, utcc, ut, freq)
-        create_sync_servo(servo_file, offsets, utcc, ut, sci_cc, freq)
+        sci = create_utscience(os.path.join(base_folder,str(freq),'%s.fits'%day), gyro, revcounter, offsets, utcc, ut, freq)
+        create_sync_servo(servo_file, offsets, utcc, ut, sci['TIME']['COMPUTERCLOCK'], freq)
 
 if __name__ == '__main__':
     process_level1()

@@ -1,4 +1,5 @@
 import numpy as np
+from smooth import smooth
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import pyfits
@@ -51,13 +52,16 @@ h_jumps_scaled = h_jumps.astype(np.double)
 h_jumps_scaled[h_jumps] *= np.round(np.diff(ut)[h_jumps]/typical_revlength)
 unwrapped[1:] += np.cumsum(h_jumps_scaled) * np.pi * 2 
 
+#smooth
+#unwrapped = smooth(unwrapped, 30)
+
 #read ut science
 ut_sci_10 = pyfits.getdata(os.path.join(folder, 'all_10GHz_data.fits'), 'TIME')['UT']
 ut_sci_15 = pyfits.getdata(os.path.join(folder, 'all_15GHz_data.fits'), 'TIME')['UT']
 
 #interpolate and reset to -pi pi
-fixed_az_10 = np.mod(np.interp(ut_sci_10, ut, unwrapped) + np.pi, 2*np.pi) - np.pi
-fixed_az_15 = np.mod(np.interp(ut_sci_15, ut, unwrapped) + np.pi, 2*np.pi) - np.pi
+fixed_az_10 = np.mod(smooth(np.interp(ut_sci_10, ut, unwrapped),30) + np.pi, 2*np.pi) - np.pi
+fixed_az_15 = np.mod(smooth(np.interp(ut_sci_15, ut, unwrapped),30) + np.pi, 2*np.pi) - np.pi
 
 # TODO flagging
 ###gaps longer than ROTATION are flagged
