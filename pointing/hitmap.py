@@ -63,6 +63,24 @@ def qubin(pix, NSIDE, q_channel, u_channel, pa):
 
     return weightmap(summap, invM)
 
+def unwrap(phase):
+    i,=np.where(np.diff(phase)<0)
+    i+=1
+    offsets = 360. * np.repeat(np.arange(len(i)+1), np.concatenate([i, [len(phase)]]) -np.          concatenate([[0],i]))
+    return phase + offsets
+
+
+def phasebin(nbins, az, signal):
+    phase = unwrap(phase)
+    phasebin_edges = np.linspace(0, 360, nbins+1)
+    #SPLIT THE PHASE FOR EACH RING
+    pseudomap = np.zeros( ) 
+    for each ring:
+        pseudomap[:,ring], edges = np.histogram(phase_ring, bins=phasebin_edges, weights=signal_ring)
+        hits, edges = np.histogram(phase_ring, bins=phasebin_ring)
+        pseudomap[:,ring] /= hits
+    return pseudomap
+    
 
 def gal2eq(m):
     Rgal2eq = hp.Rotator(coord='CG')
