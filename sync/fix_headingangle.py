@@ -1,7 +1,7 @@
 import numpy as np
 from smooth import smooth
 from collections import OrderedDict
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import pyfits
 import os
 

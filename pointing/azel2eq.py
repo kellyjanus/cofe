@@ -21,7 +21,7 @@ servo_file = fits.open('data/utservo.fits')
 # pointing channel is the column in the pointing file
 
 MISSIONSTART = 16.8 #from altitude
-MISSIONEND = 36.84 #from issue with latitude
+MISSIONEND = 36.76 #from issue with latitude
 #MISSIONEND = 16.8 + 1./60
 #first sun xsing
 #MISSIONSTART = 17 + 9/60.
@@ -55,7 +55,7 @@ def conv(i, azimuth, elevation, utc):
     observer.date = utc
     return observer.radec_of(azimuth, elevation)
 
-with fits.create('/COFE/Level1/1.1/eq_pointing_%d.fits' % (freq)) as f:
+with fits.create('data/eq_pointing_%d.fits' % (freq)) as f:
     f.write_HDU("TIME", OrderedDict({'UT': ut}))
     for pnt_ch in channels:
         print("Channel %d" % pnt_ch)
