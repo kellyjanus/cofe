@@ -71,16 +71,20 @@ def unwrap(phase):
 
 
 def phasebin(nbins, az, signal):
-    phase = unwrap(phase)
-    phasebin_edges = np.linspace(0, 360, nbins+1)
-    #SPLIT THE PHASE FOR EACH RING
-    pseudomap = np.zeros( ) 
-    for each ring:
-        pseudomap[:,ring], edges = np.histogram(phase_ring, bins=phasebin_edges, weights=signal_ring)
-        hits, edges = np.histogram(phase_ring, bins=phasebin_ring)
-        pseudomap[:,ring] /= hits
+    """Phasebin signal for each ring in a pseudomap of nbins bins
+    """
+    ring_edges, = np.where(np.diff(az) < -np.pi)
+    nrings = len(ring_edges)
+    phasebin_edges = np.linspace(-np.pi,np.pi, nbins+1)
+
+    pseudomap = np.zeros([nbins,nrings-1],dtype=np.float32 )
+    for ring in range(nrings-1):
+        az_ring=az[ring_edges[ring]:ring_edges[ring+1]]
+        signal_ring=signal[ring_edges[ring]:ring_edges[ring+1]]
+        pseudomap[:,ring], edges = np.histogram(az_ring, bins=phasebin_edges, weights=signal_ring)
+        hits, edges = np.histogram(az_ring, bins=phasebin_edges)
+        pseudomap[hits>0,ring] /= hits[hits>0]
     return pseudomap
-    
 
 def gal2eq(m):
     Rgal2eq = hp.Rotator(coord='CG')
