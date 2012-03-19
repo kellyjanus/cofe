@@ -11,10 +11,15 @@ def freq2wavelength(freq):
         """Freq [GHz] to wavelength [microns]"""
         return constants.c / freq / 1e3
 
-freq = 15
-pointing_file = fits.open('data/all_%dghz_pointing.fits' % freq)
+freq = 10
+mag = True
 
-channels = list(set([int(c.translate(None, 'AZEL')) for c in pointing_file[0].dtype.names]))
+pointing_filename = 'data/all_%dghz_pointing.fits' % freq
+if mag:
+    pointing_filename = pointing_filename.replace('.fits','_mag.fits')
+pointing_file = fits.open(pointing_filename)
+
+channels = list(set([int(c.translate(None, 'AZEL')) for c in pointing_file[0].dtype.names if c != 'UT']))
 data_file = fits.open('data/all_%dGHz_data_cal.fits' % freq)
 servo_file = fits.open('data/utservo.fits')
 
@@ -55,7 +60,10 @@ def conv(i, azimuth, elevation, utc):
     observer.date = utc
     return observer.radec_of(azimuth, elevation)
 
-with fits.create('data/eq_pointing_%d.fits' % (freq)) as f:
+out_filename = 'data/eq_pointing_%d.fits' % (freq)
+if mag:
+    out_filename = out_filename.replace('.fits','_mag.fits')
+with fits.create(out_filename) as f:
     f.write_HDU("TIME", OrderedDict({'UT': ut}))
     for pnt_ch in channels:
         print("Channel %d" % pnt_ch)

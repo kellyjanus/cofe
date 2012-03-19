@@ -6,7 +6,7 @@ import itertools
 import pyfits
 import healpy as hp
 
-def pix2map(pix, nside, tod=None):
+def pix2map(pix, nside, tod=None, dividebyhits=True):
     """Pixel array to hitmap, if TOD with same lenght of PIX is provided, 
     it is binned to a map"""
     #TODO test case
@@ -21,7 +21,9 @@ def pix2map(pix, nside, tod=None):
         ids_binned = np.bincount(pix, weights=tod)
         binned = np.ones(hp.nside2npix(nside)+1) * hp.UNSEEN
         binned[:len(ids_binned)] = ids_binned
-        binned = hp.ma(binned[:-1])/hitmap
+        binned = hp.ma(binned[:-1])
+        if dividebyhits:
+            binned /= hitmap
         return hitmap, binned
 
 def weightmap(summap, invM):
@@ -32,8 +34,10 @@ def weightmap(summap, invM):
     return binmap
 
 def get_qu_weights(pa):
-    cos2pa = np.cos(2 * pa)
-    sin2pa = np.sin(2 * pa)
+    #cos2pa = np.cos(2 * pa)
+    #sin2pa = np.sin(2 * pa)
+    cos2pa = np.cos(pa)**2 - np.sin(pa)**2
+    sin2pa = 2*np.sin(pa)*np.cos(pa)
     q_channel_w = {'Q': -1 * cos2pa, 'U': -1 * sin2pa}
     u_channel_w = {'Q': -1 * sin2pa, 'U': cos2pa}
     return q_channel_w, u_channel_w
@@ -47,21 +51,22 @@ def qubin(pix, NSIDE, q_channel, u_channel, pa):
     M = {}
     for c1,c2 in itertools.combinations_with_replacement('QU',2):
         print (c1,c2)
-        M[(c1,c2)] = pix2map(pix, NSIDE, q_channel_w[c1] * q_channel_w[c2] + u_channel_w[c1] * u_channel_w[c2])[1].filled()
+        M[(c1,c2)] = pix2map(pix, NSIDE, q_channel_w[c1] * q_channel_w[c2] + u_channel_w[c1] * u_channel_w[c2], dividebyhits=False)[1].filled()
 
     #invert M
     invM = np.array([ 
             [[ M[('Q','Q')][x], M[('Q','U')][x] ],
                            [ M[('Q','U')][x], M[('U','U')][x] ]] for x in range(npix) ])
     for x,blockM in enumerate(invM):
-        if blockM[0,0] != hp.UNSEEN:
+        if blockM[0,0] != 0:
             invM[x] = np.linalg.inv(blockM)
 
-    summap = np.hstack([
-        pix2map(pix, NSIDE, q_channel * q_channel_w[c] + u_channel * u_channel_w[c])[1].filled()[:,None] for c in 'QU'
-        ])
+    summap = hp.ma(np.hstack([
+        pix2map(pix, NSIDE, q_channel * q_channel_w[c] + u_channel * u_channel_w[c], dividebyhits=False)[1].filled()[:,None] for c in 'QU'
+        ]))
+    summap.mask = summap == 0
 
-    return weightmap(summap, invM)
+    return M, invM, summap, weightmap(summap, invM)
 
 def unwrap(phase):
     i,=np.where(np.diff(phase)<0)
@@ -97,7 +102,11 @@ if __name__ == '__main__':
 
     freq = 10
     ch_num = 5
-    f=pyfits.open('data/eq_pointing_%d.fits' % freq)
+    mag = True
+    filename = 'data/eq_pointing_%d.fits' % freq
+    if mag:
+        filename = filename.replace('.fits','_mag.fits')
+    f=pyfits.open(filename)
     ch = 'CHANNEL_%d' % ch_num
     p=f[ch].data
     NSIDE = 128
@@ -125,21 +134,21 @@ if __name__ == '__main__':
     t_channel = qu_wmap[0][pix]
     q_channel = q_channel_w['Q'] * qu_wmap[1][pix] +  q_channel_w['U'] * qu_wmap[2][pix]
     u_channel = u_channel_w['Q'] * qu_wmap[1][pix] +  u_channel_w['U'] * qu_wmap[2][pix]
-    wmap_qu_binned = qubin(pix, NSIDE, q_channel, u_channel, p['PSI'])
-    hp.mollview(wmap_qu_binned[:,0], min=-.5, max=.5, unit='mK', title='WMAP 23GHz 7y Q')
+    wmapM, wiaminvM, wmap_qu_summap, wmap_qu_binned = qubin(pix, NSIDE, q_channel, u_channel, p['PSI'])
+    hp.mollview(wmap_qu_binned[:,0].filled(), min=-.5, max=.5, unit='mK', title='WMAP 23GHz 7y Q', xsize=2000)
     plt.savefig('wmap_q.png')
-    hp.mollview(wmap_qu_binned[:,1], min=-.5, max=.5, unit='mK', title='WMAP 23GHz 7y U')
+    hp.mollview(wmap_qu_binned[:,1].filled(), min=-.5, max=.5, unit='mK', title='WMAP 23GHz 7y U', xsize=2000)
     plt.savefig('wmap_u.png')
     wmap_t_binned = pix2map(pix, NSIDE, t_channel)[1]
-    hp.mollview(wmap_t_binned, min=-100, max=100, unit='mK', title='WMAP 23GHz 7y I')
+    hp.mollview(wmap_t_binned.filled(), min=-100, max=100, unit='mK', title='WMAP 23GHz 7y I', xsize=2000)
     plt.savefig('wmap_t.png')
     cofe_t_binned = pix2map(pix, NSIDE, data['T'][data_range])[1]
-    cofe_qu_binned = qubin(pix, NSIDE, data['Q'][data_range], data['U'][data_range], p['PSI'])
-    hp.mollview(cofe_qu_binned[:,0], min=-.5, max=.5, unit='?', title='COFE %dGHz ch %d Q' % (freq, ch_num))
+    M, invM,cofe_qu_summap,  cofe_qu_binned = qubin(pix, NSIDE, data['Q'][data_range], data['U'][data_range], p['PSI'])
+    hp.mollview(cofe_qu_binned[:,0].filled(), min=-.5, max=.5, unit='?', title='COFE %dGHz ch %d Q' % (freq, ch_num), xsize=2000)
     plt.savefig('cofe_q_%d_ch%d.png' % (freq, ch_num))
-    hp.mollview(cofe_qu_binned[:,1], min=-.5, max=.5, unit='?', title='COFE %dGHz ch %d U' % (freq, ch_num))
+    hp.mollview(cofe_qu_binned[:,1].filled(), min=-.5, max=.5, unit='?', title='COFE %dGHz ch %d U' % (freq, ch_num), xsize=2000)
     plt.savefig('cofe_u_%d_ch%d.png' % (freq, ch_num))
-    hp.mollview(cofe_t_binned, min=-.5, max=.5, unit='?', title='COFE %dGHz ch %d I' % (freq, ch_num))
+    hp.mollview(cofe_t_binned.filled(), min=-.5, max=.5, unit='?', title='COFE %dGHz ch %d I' % (freq, ch_num), xsize=2000)
     plt.savefig('cofe_t_%d_ch%d.png' % (freq, ch_num))
     for c in 'tqu':
         subprocess.call(['convert -delay 100 '+(' wmap_%s.png ' % c)+' cofe_%s_%d_ch%d.png ' % (c, freq, ch_num)+' cofewmap_%s_%d_ch%d.gif ' % (c, freq, ch_num)],shell=True)
